@@ -57,10 +57,10 @@ app.post("/crop", async (req, res) => {
 
       const sku = skuList[i] || "default";
       labelPage.drawText(`SKU: ${sku}`, {
-          x: 10,
-          y: 15,
+          x: 5,
+          y: 0,
           font,
-          size: 9.5,
+          size: 8,
           color: rgb(0, 0, 0)
         });
 
