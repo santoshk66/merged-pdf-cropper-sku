@@ -1,10 +1,11 @@
+
 import express from "express";
 import multer from "multer";
 import cors from "cors";
 import fs from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { extractSkusFromRawText, parseMappingCSV, generatePicklistCSV } from "./skuUtils.js";
+import { parseMappingCSV, extractSkusFromCSV } from "./skuUtils.js";
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
@@ -19,21 +20,13 @@ app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), as
     const csvFile = req.files["skuMapping"]?.[0];
     if (!pdfFile) return res.status(400).json({ error: "Missing PDF" });
 
-    const pdfBuffer = await fs.readFile(pdfFile.path);
-    const { text: pdfText } = await pdfParse(pdfBuffer);
-
-    let mapping = {};
+    let skuList = [];
     if (csvFile) {
       const csvBuffer = await fs.readFile(csvFile.path);
-      mapping = parseMappingCSV(csvBuffer);
+      skuList = extractSkusFromCSV(csvBuffer);
     }
 
-    const skuData = extractSkusFromRawText(pdfText, mapping);
-    const skuList = Object.entries(skuData).flatMap(
-      ([fk, data]) => Array(data.qty).fill(data.customSku)
-    );
-
-    await fs.writeFile(`uploads/${pdfFile.filename}`, pdfBuffer);
+    await fs.writeFile(`uploads/${pdfFile.filename}`, await fs.readFile(pdfFile.path));
     res.json({ filename: pdfFile.filename, skuList });
   } catch (err) {
     console.error("Upload error", err);
@@ -64,8 +57,8 @@ app.post("/crop", async (req, res) => {
 
       const sku = skuList[i] || "default";
       labelPage.drawText(`SKU: ${sku}`, {
-          x: 5,
-          y: 0,
+          x: 10,
+          y: 15,
           font,
           size: 9.5,
           color: rgb(0, 0, 0)
