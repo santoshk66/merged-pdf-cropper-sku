@@ -56,7 +56,13 @@ app.post("/crop", async (req, res) => {
       });
 
       const sku = skuList[i] || "default";
-      labelPage.drawText(`SKU: ${sku}`, { x: 12, y: 12, font, size: 10, color: rgb(0, 0, 0) });
+      labelPage.drawText(`SKU: ${sku}`, {
+          x: 15,                                 // left aligned
+          y: 5,                                  // very bottom
+          font,
+          size: 9.5,                             // slightly smaller
+          color: rgb(0, 0, 0)
+        });
 
       invoicePage.drawPage(embedded, {
         x: -invoiceBox.x,
