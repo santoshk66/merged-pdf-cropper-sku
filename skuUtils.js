@@ -1,3 +1,4 @@
+
 import { parse } from "csv-parse/sync";
 
 export function parseMappingCSV(buffer) {
@@ -21,21 +22,4 @@ export function extractSkusFromCSV(buffer) {
     if (custom) skus.push(custom);
   }
   return skus;
-}
-
-// ✅ NEW FUNCTION: Create a picklist with SKU counts
-export function generatePicklistCSV(skuList) {
-  const skuCounts = {};
-
-  for (const sku of skuList) {
-    if (!skuCounts[sku]) skuCounts[sku] = 0;
-    skuCounts[sku] += 1;
-  }
-
-  const headers = "SKU,Total Qty\n";
-  const rows = Object.entries(skuCounts).map(
-    ([sku, qty]) => `${sku},${qty}`
-  );
-
-  return headers + rows.join("\n");
 }
