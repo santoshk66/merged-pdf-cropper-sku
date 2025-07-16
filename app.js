@@ -58,7 +58,7 @@ app.post("/crop", async (req, res) => {
       const sku = skuList[i] || "default";
       labelPage.drawText(`SKU: ${sku}`, {
           x: 15,                                 // left aligned
-          y: 5,                                  // very bottom
+          y: 1,                                  // very bottom
           font,
           size: 9.5,                             // slightly smaller
           color: rgb(0, 0, 0)
