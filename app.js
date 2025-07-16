@@ -42,6 +42,7 @@ app.post("/crop", async (req, res) => {
     const outPdf = await PDFDocument.create();
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
+    // STEP 1: Draw each cropped label + invoice page
     for (let i = 0; i < inputPdf.getPageCount(); i++) {
       const [page] = await outPdf.copyPages(inputPdf, [i]);
       const { height } = page.getSize();
@@ -57,12 +58,12 @@ app.post("/crop", async (req, res) => {
 
       const sku = skuList[i] || "default";
       labelPage.drawText(`SKU: ${sku}`, {
-          x: 5,
-          y: 0,
-          font,
-          size: 8,
-          color: rgb(0, 0, 0)
-        });
+        x: 5,
+        y: 0,
+        font,
+        size: 8,
+        color: rgb(0, 0, 0)
+      });
 
       invoicePage.drawPage(embedded, {
         x: -invoiceBox.x,
@@ -70,10 +71,29 @@ app.post("/crop", async (req, res) => {
       });
     }
 
+    // STEP 2: Save the new cropped PDF
     const pdfBytes = await outPdf.save();
-    const outputPath = `outputs/output-${filename}`;
-    await fs.writeFile(outputPath, pdfBytes);
-    res.json({ outputUrl: `/outputs/output-${filename}` });
+    const outputPdfPath = `outputs/output-${filename}`;
+    await fs.writeFile(outputPdfPath, pdfBytes);
+
+    // STEP 3: Generate picklist
+    const skuCounts = {};
+    skuList.forEach((sku) => {
+      if (!skuCounts[sku]) skuCounts[sku] = { customSku: sku, qty: 0 };
+      skuCounts[sku].qty += 1;
+    });
+
+    // Ensure this function exists in `skuUtils.js`
+    const { generatePicklistCSV } = await import("./skuUtils.js");
+    const csvContent = generatePicklistCSV(skuCounts);
+    const csvPath = `outputs/picklist-${filename}.csv`;
+    await fs.writeFile(csvPath, csvContent);
+
+    // STEP 4: Respond with both files
+    res.json({
+      outputPdfUrl: `/outputs/output-${filename}`,
+      picklistUrl: `/outputs/picklist-${filename}.csv`
+    });
   } catch (err) {
     console.error("Crop error", err);
     res.status(500).json({ error: "Crop failed" });
