@@ -49,7 +49,8 @@ export function extractSkusFromText(text, mapping = {}) {
 export function generatePicklistCSV(skuData) {
   const headers = "Flipkart SKU,Custom SKU,Total Qty\n";
   const rows = Object.entries(skuData).map(
-    ([fk, data]) => \`\${fk},\${data.customSku},\${data.qty}\`
+    ([fk, data]) => `${fk},${data.customSku},${data.qty}`
   );
   return headers + rows.join("\n");
 }
+
