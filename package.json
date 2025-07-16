@@ -1,25 +1,16 @@
 {
-  "name": "merged-pdf-cropper-sku",
+  "name": "pdf-cropper-sku-final",
   "version": "1.0.0",
   "type": "module",
   "main": "app.js",
   "scripts": {
-    "preinstall": "npx npm-force-resolutions",
-    "start": "node app.js",
-    "postinstall": "rm -f node_modules/pdf-parse/test/data/05-versions-space.pdf || true"
+    "start": "node app.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "csv-parse": "^5.5.0",
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
-    "pdf-lib": "^1.17.1",
-    "pdf-parse": "1.1.0"
-  },
-  "devDependencies": {
-    "npm-force-resolutions": "^0.0.10"
-  },
-  "resolutions": {
-    "pdf-parse": "1.1.0"
+    "pdf-lib": "^1.17.1"
   }
 }
