@@ -3,6 +3,7 @@ import multer from "multer";
 import cors from "cors";
 import fs from "fs/promises";
 import path from "path";
+import pdfParse from "pdf-parse";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { extractSkusFromRawText, parseMappingCSV, generatePicklistCSV } from "./skuUtils.js";
 
@@ -20,6 +21,7 @@ app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), as
     if (!pdfFile) return res.status(400).json({ error: "Missing PDF" });
 
     const pdfBuffer = await fs.readFile(pdfFile.path);
+    const { text: pdfText } = await pdfParse(pdfBuffer);
 
     let mapping = {};
     if (csvFile) {
@@ -27,7 +29,6 @@ app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), as
       mapping = parseMappingCSV(csvBuffer);
     }
 
-    const pdfText = pdfBuffer.toString("utf8");
     const skuData = extractSkusFromRawText(pdfText, mapping);
     const skuList = Object.entries(skuData).flatMap(
       ([fk, data]) => Array(data.qty).fill(data.customSku)
@@ -64,10 +65,10 @@ app.post("/crop", async (req, res) => {
 
       const sku = skuList[i] || "default";
       labelPage.drawText(`SKU: ${sku}`, {
-          x: 5,                                 // left aligned
-          y: 0,                                  // very bottom
+          x: 5,
+          y: 0,
           font,
-          size: 9.5,                             // slightly smaller
+          size: 9.5,
           color: rgb(0, 0, 0)
         });
 
