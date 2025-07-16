@@ -20,14 +20,24 @@ app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), as
     if (!pdfFile) return res.status(400).json({ error: "Missing PDF" });
 
     const pdfBuffer = await fs.readFile(pdfFile.path);
-    const rawText = (await fs.readFile(pdfFile.path)).toString("utf8"); // simulated
-    let mapping = {};
-    if (csvFile) mapping = parseMappingCSV(await fs.readFile(csvFile.path));
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
 
-    const skuData = extractSkusFromRawText(rawText, mapping);
-    const skuList = Object.entries(skuData).flatMap(([sku, data]) => Array(data.qty).fill(data.customSku));
+    let mapping = {};
+    if (csvFile) {
+      const csvBuffer = await fs.readFile(csvFile.path);
+      mapping = parseMappingCSV(csvBuffer);
+    }
+
+    // Simulated text extract from each page's annotations/metadata (you can improve this)
+    const dummyExtractedSKUs = ["2lens-wifi-small-indoor", "S-4gdual lens"];
+    const skuData = dummyExtractedSKUs.reduce((acc, flipkartSku) => {
+      const mapped = mapping[flipkartSku] || "default";
+      acc.push(mapped);
+      return acc;
+    }, []);
+
     await fs.writeFile(`uploads/${pdfFile.filename}`, pdfBuffer);
-    res.json({ filename: pdfFile.filename, skuList });
+    res.json({ filename: pdfFile.filename, skuList: skuData });
   } catch (err) {
     console.error("Upload error", err);
     res.status(500).json({ error: "Upload failed" });
