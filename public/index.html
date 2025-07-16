@@ -292,7 +292,7 @@
   * {
     transition: all 0.3s ease-in-out;
   }
-  </style>
+</style>
 </head>
 <body>
   <h2>Upload PDF & SKU Mapping</h2>
@@ -316,23 +316,6 @@
     <button id="processPDF" disabled>Process PDF</button>
   </div>
 
-  <script>
-    // JavaScript to handle the loading state for the upload button
-    document.getElementById('uploadForm').addEventListener('submit', function(e) {
-      e.preventDefault(); // Prevent default form submission for demo
-      const uploadButton = document.getElementById('uploadButton');
-      uploadButton.textContent = 'Loading...';
-      uploadButton.classList.add('loading');
-      uploadButton.disabled = true;
-
-      // Simulate file processing (replace with actual main.js logic)
-      setTimeout(() => {
-        uploadButton.textContent = 'Upload';
-        uploadButton.classList.remove('loading');
-        uploadButton.disabled = false;
-      }, 2000); // Simulate 2-second processing
-    });
-  </script>
   <script src="main.js"></script>
 </body>
 </html>
