@@ -3,7 +3,7 @@ import multer from "multer";
 import cors from "cors";
 import fs from "fs/promises";
 import path from "path";
-import pdfParse from "pdf-parse";
+const pdfParse = (await import("pdf-parse")).default;
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { extractSkusFromRawText, parseMappingCSV, generatePicklistCSV } from "./skuUtils.js";
 
