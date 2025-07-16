@@ -1,1 +1,48 @@
-<!DOCTYPE html><html><head><meta charset='UTF-8'><title>PDF Cropper</title></head><body><h1>PDF Cropper + SKU App (UI to be added)</h1></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PDF Cropper with SKU</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: auto; }
+    canvas { border: 1px solid #000; margin-bottom: 20px; }
+    .selector { position: absolute; pointer-events: none; }
+    .label-selector { border: 2px dashed blue; }
+    .invoice-selector { border: 2px dashed red; }
+    .label-selector::before, .invoice-selector::before {
+      content: attr(data-type);
+      position: absolute;
+      top: -20px;
+      left: 0;
+      background: #000;
+      color: #fff;
+      padding: 2px 4px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Upload PDF & SKU Mapping</h2>
+  <form id="uploadForm">
+    <input type="file" name="pdf" accept="application/pdf" required />
+    <input type="file" name="skuMapping" accept=".csv" />
+    <button type="submit">Upload</button>
+  </form>
+
+  <div id="preview-container" style="position:relative;">
+    <canvas id="pdfCanvas"></canvas>
+    <div id="labelBox" class="selector label-selector" data-type="Label"></div>
+    <div id="invoiceBox" class="selector invoice-selector" data-type="Invoice"></div>
+  </div>
+
+  <div>
+    <button id="setLabel">Set Label Crop</button>
+    <button id="setInvoice">Set Invoice Crop</button>
+    <button id="processPDF" disabled>Process PDF</button>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
