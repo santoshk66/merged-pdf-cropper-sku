@@ -1,11 +1,10 @@
-
 import express from "express";
 import multer from "multer";
 import cors from "cors";
 import fs from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { parseMappingCSV, extractSkusFromCSV } from "./skuUtils.js";
+import { extractSkusFromCSV, generatePicklistCSV } from "./skuUtils.js";
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
@@ -14,6 +13,7 @@ app.use(express.static("public"));
 app.use(express.json());
 app.use("/outputs", express.static("outputs"));
 
+// UPLOAD ROUTE
 app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), async (req, res) => {
   try {
     const pdfFile = req.files["pdf"]?.[0];
@@ -34,6 +34,7 @@ app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), as
   }
 });
 
+// CROP + PICKLIST ROUTE
 app.post("/crop", async (req, res) => {
   try {
     const { filename, labelBox, invoiceBox, skuList } = req.body;
@@ -42,7 +43,6 @@ app.post("/crop", async (req, res) => {
     const outPdf = await PDFDocument.create();
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
-    // STEP 1: Draw each cropped label + invoice page
     for (let i = 0; i < inputPdf.getPageCount(); i++) {
       const [page] = await outPdf.copyPages(inputPdf, [i]);
       const { height } = page.getSize();
@@ -62,7 +62,7 @@ app.post("/crop", async (req, res) => {
         y: 0,
         font,
         size: 8,
-        color: rgb(0, 0, 0)
+        color: rgb(0, 0, 0),
       });
 
       invoicePage.drawPage(embedded, {
@@ -71,25 +71,17 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // STEP 2: Save the new cropped PDF
+    // Save final cropped PDF
     const pdfBytes = await outPdf.save();
     const outputPdfPath = `outputs/output-${filename}`;
     await fs.writeFile(outputPdfPath, pdfBytes);
 
-    // STEP 3: Generate picklist
-    const skuCounts = {};
-    skuList.forEach((sku) => {
-      if (!skuCounts[sku]) skuCounts[sku] = { customSku: sku, qty: 0 };
-      skuCounts[sku].qty += 1;
-    });
-
-    // Ensure this function exists in `skuUtils.js`
-    const { generatePicklistCSV } = await import("./skuUtils.js");
-    const csvContent = generatePicklistCSV(skuCounts);
+    // Generate picklist CSV
+    const csvContent = generatePicklistCSV(skuList);
     const csvPath = `outputs/picklist-${filename}.csv`;
     await fs.writeFile(csvPath, csvContent);
 
-    // STEP 4: Respond with both files
+    // Response
     res.json({
       outputPdfUrl: `/outputs/output-${filename}`,
       picklistUrl: `/outputs/picklist-${filename}.csv`
@@ -101,4 +93,4 @@ app.post("/crop", async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on ${port}`));
+app.listen(port, () => console.log(`✅ Server running on port ${port}`));
