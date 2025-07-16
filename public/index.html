@@ -16,146 +16,111 @@
 /* Body styling */
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: linear-gradient(145deg, #e9ecef 0%, #dbeafe 100%);
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
   padding: 20px;
   max-width: 1000px;
   margin: 0 auto;
-  color: #1e293b;
+  color: #1f2937;
   line-height: 1.6;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
 }
 
 /* Header styling */
 h2 {
-  font-size: 2rem;
+  font-size: 1.9rem;
   font-weight: 700;
-  color: #0f172a;
+  color: #111827;
   margin-bottom: 20px;
   text-align: left;
-  letter-spacing: -0.03em;
-  background: linear-gradient(to right, #2563eb, #8b5cf6);
+  letter-spacing: -0.02em;
+  background: linear-gradient(to right, #3b82f6, #7c3aed);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Form styling with glassmorphism */
+/* Form styling */
 #uploadForm {
   display: flex;
   gap: 12px;
   align-items: center;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
+  background-color: #ffffff;
   padding: 16px;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   margin-bottom: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid #e5e7eb;
 }
 
 #uploadForm input[type="file"] {
   font-size: 0.9rem;
-  padding: 12px;
-  border: 1px solid rgba(203, 213, 225, 0.5);
+  padding: 10px;
+  border: 1px solid #d1d5db;
   border-radius: 8px;
-  background: rgba(248, 250, 252, 0.8);
-  transition: border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+  background-color: #f8fafc;
+  transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 #uploadForm input[type="file"]:hover {
-  border-color: #2563eb;
-  background: rgba(240, 245, 255, 0.9);
-  box-shadow: 0 0 10px rgba(37, 99, 235, 0.2);
+  border-color: #3b82f6;
+  background-color: #f0f5ff;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
 }
 
 #uploadForm input[type="file"]:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }
 
 #uploadForm button {
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  background: linear-gradient(135deg, #3b82f6, #60a5fa);
   color: #ffffff;
   font-weight: 600;
-  padding: 12px 24px;
+  padding: 10px 20px;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-#uploadForm button::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: width 0.4s ease, height 0.4s ease;
-}
-
-#uploadForm button:hover::after {
-  width: 200%;
-  height: 200%;
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
 }
 
 #uploadForm button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 #uploadForm button:active {
   transform: translateY(0);
 }
 
-/* Preview container with glassmorphism */
+/* Preview container and canvas */
 #preview-container {
   position: relative;
   margin-bottom: 20px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(8px);
-  padding: 12px;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: #ffffff;
+  padding: 10px;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
 canvas#pdfCanvas {
-  border: 1px solid rgba(203, 213, 225, 0.5);
+  border: 1px solid #d1d5db;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 /* Selector styling */
 .selector {
   position: absolute;
   pointer-events: none;
-  transition: border-color 0.3s ease, transform 0.3s ease;
+  transition: border-color 0.3s ease;
 }
 
 .label-selector {
-  border: 2px dashed #2563eb;
-}
-
-.label-selector:hover {
-  transform: scale(1.02);
+  border: 2px dashed #3b82f6;
 }
 
 .invoice-selector {
-  border: 2px dashed #dc2626;
-}
-
-.invoice-selector:hover {
-  transform: scale(1.02);
+  border: 2px dashed #ef4444;
 }
 
 .label-selector::before,
@@ -164,15 +129,14 @@ canvas#pdfCanvas {
   position: absolute;
   top: -20px;
   left: 0;
-  background: linear-gradient(135deg, #1e293b, #475569);
+  background: linear-gradient(135deg, #1f2937, #4b5563);
   color: #ffffff;
-  padding: 5px 10px;
+  padding: 4px 8px;
   font-size: 0.8rem;
   font-weight: 600;
   border-radius: 6px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.05em;
 }
 
 /* Buttons section */
@@ -182,67 +146,47 @@ div:last-of-type {
 }
 
 button {
-  padding: 12px 24px;
+  padding: 10px 20px;
   font-size: 0.9rem;
   font-weight: 600;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-button::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: width 0.4s ease, height 0.4s ease;
-}
-
-button:hover::after {
-  width: 200%;
-  height: 200%;
+  transition: transform 0.2s ease, box-shadow 0.3s ease, background 0.3s ease;
 }
 
 #setLabel {
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  background: linear-gradient(135deg, #3b82f6, #60a5fa);
   color: #ffffff;
 }
 
 #setLabel:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 #setInvoice {
-  background: linear-gradient(135deg, #dc2626, #ef4444);
+  background: linear-gradient(135deg, #ef4444, #f87171);
   color: #ffffff;
 }
 
 #setInvoice:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
 #processPDF {
-  background: linear-gradient(135deg, #059669, #10b981);
+  background: linear-gradient(135deg, #10b981, #34d399);
   color: #ffffff;
 }
 
 #processPDF:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.4);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 #processPDF:disabled {
-  background: rgba(209, 213, 219, 0.8);
+  background: #d1d5db;
   cursor: not-allowed;
   opacity: 0.7;
   box-shadow: none;
@@ -251,7 +195,7 @@ button:hover::after {
 /* Focus states for accessibility */
 button:focus, input:focus {
   outline: none;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }
 
 /* Responsive design */
@@ -261,7 +205,7 @@ button:focus, input:focus {
   }
 
   h2 {
-    font-size: 1.7rem;
+    font-size: 1.6rem;
   }
 
   #uploadForm {
