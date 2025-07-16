@@ -6,22 +6,223 @@
   <title>PDF Cropper with SKU</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: auto; }
-    canvas { border: 1px solid #000; margin-bottom: 20px; }
-    .selector { position: absolute; pointer-events: none; }
-    .label-selector { border: 2px dashed blue; }
-    .invoice-selector { border: 2px dashed red; }
-    .label-selector::before, .invoice-selector::before {
-      content: attr(data-type);
-      position: absolute;
-      top: -20px;
-      left: 0;
-      background: #000;
-      color: #fff;
-      padding: 2px 4px;
-      font-size: 12px;
+  /* Reset default margins and ensure smooth rendering */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f4f7fa;
+    padding: 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+    color: #333;
+    line-height: 1.6;
+  }
+
+  /* Header styling */
+  h2 {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    text-align: center;
+    margin-bottom: 30px;
+    letter-spacing: -0.02em;
+  }
+
+  /* Form styling */
+  #uploadForm {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: center;
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+  }
+
+  #uploadForm input[type="file"] {
+    font-size: 0.95rem;
+    padding: 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background-color: #f9fafb;
+    transition: border-color 0.3s ease, background-color 0.3s ease;
+  }
+
+  #uploadForm input[type="file"]:hover {
+    border-color: #3b82f6;
+    background-color: #eff6ff;
+  }
+
+  #uploadForm button {
+    background-color: #3b82f6;
+    color: #fff;
+    font-weight: 500;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+  }
+
+  #uploadForm button:hover {
+    background-color: #2563eb;
+    transform: translateY(-2px);
+  }
+
+  #uploadForm button:active {
+    transform: translateY(0);
+  }
+
+  /* Canvas and preview container */
+  #preview-container {
+    position: relative;
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  canvas#pdfCanvas {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    max-width: 100%;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Selector styling */
+  .selector {
+    position: absolute;
+    pointer-events: none;
+    transition: border-color 0.3s ease;
+  }
+
+  .label-selector {
+    border: 2px dashed #3b82f6;
+  }
+
+  .invoice-selector {
+    border: 2px dashed #ef4444;
+  }
+
+  .label-selector::before,
+  .invoice-selector::before {
+    content: attr(data-type);
+    position: absolute;
+    top: -24px;
+    left: 8px;
+    background: #1f2937;
+    color: #fff;
+    padding: 4px 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Buttons section */
+  div:last-of-type {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: center;
+  }
+
+  button {
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: 500;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+  }
+
+  #setLabel {
+    background-color: #3b82f6;
+    color: #fff;
+  }
+
+  #setLabel:hover {
+    background-color: #2563eb;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  }
+
+  #setInvoice {
+    background-color: #ef4444;
+    color: #fff;
+  }
+
+  #setInvoice:hover {
+    background-color: #dc2626;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  }
+
+  #processPDF {
+    background-color: #10b981;
+    color: #fff;
+  }
+
+  #processPDF:hover:not(:disabled) {
+    background-color: #059669;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  }
+
+  #processPDF:disabled {
+    background-color: #d1d5db;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  /* Responsive design */
+  @media (max-width: 768px) {
+    body {
+      padding: 20px;
     }
-  </style>
+
+    h2 {
+      font-size: 1.5rem;
+    }
+
+    #uploadForm {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    #uploadForm input[type="file"],
+    #uploadForm button {
+      width: 100%;
+    }
+
+    div:last-of-type {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    button {
+      width: 100%;
+    }
+  }
+
+  /* Smooth transitions for the entire UI */
+  * {
+    transition: all 0.3s ease-in-out;
+  }
+</style>
 </head>
 <body>
   <h2>Upload PDF & SKU Mapping</h2>
