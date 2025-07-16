@@ -7,231 +7,203 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
   /* Reset default margins and ensure smooth rendering */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
 
-/* Body styling */
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-  padding: 20px;
-  max-width: 1000px;
-  margin: 0 auto;
-  color: #1f2937;
-  line-height: 1.6;
-  min-height: 100vh;
-}
-
-/* Header styling */
-h2 {
-  font-size: 1.9rem;
-  font-weight: 700;
-  color: #111827;
-  margin-bottom: 20px;
-  text-align: left;
-  letter-spacing: -0.02em;
-  background: linear-gradient(to right, #3b82f6, #7c3aed);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Form styling */
-#uploadForm {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  background-color: #ffffff;
-  padding: 16px;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
-  border: 1px solid #e5e7eb;
-}
-
-#uploadForm input[type="file"] {
-  font-size: 0.9rem;
-  padding: 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background-color: #f8fafc;
-  transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-#uploadForm input[type="file"]:hover {
-  border-color: #3b82f6;
-  background-color: #f0f5ff;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
-}
-
-#uploadForm input[type="file"]:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
-}
-
-#uploadForm button {
-  background: linear-gradient(135deg, #3b82f6, #60a5fa);
-  color: #ffffff;
-  font-weight: 600;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.3s ease;
-}
-
-#uploadForm button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-#uploadForm button:active {
-  transform: translateY(0);
-}
-
-/* Preview container and canvas */
-#preview-container {
-  position: relative;
-  margin-bottom: 20px;
-  background-color: #ffffff;
-  padding: 10px;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-}
-
-canvas#pdfCanvas {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-/* Selector styling */
-.selector {
-  position: absolute;
-  pointer-events: none;
-  transition: border-color 0.3s ease;
-}
-
-.label-selector {
-  border: 2px dashed #3b82f6;
-}
-
-.invoice-selector {
-  border: 2px dashed #ef4444;
-}
-
-.label-selector::before,
-.invoice-selector::before {
-  content: attr(data-type);
-  position: absolute;
-  top: -20px;
-  left: 0;
-  background: linear-gradient(135deg, #1f2937, #4b5563);
-  color: #ffffff;
-  padding: 4px 8px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  border-radius: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-/* Buttons section */
-div:last-of-type {
-  display: flex;
-  gap: 12px;
-}
-
-button {
-  padding: 10px 20px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.3s ease, background 0.3s ease;
-}
-
-#setLabel {
-  background: linear-gradient(135deg, #3b82f6, #60a5fa);
-  color: #ffffff;
-}
-
-#setLabel:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-#setInvoice {
-  background: linear-gradient(135deg, #ef4444, #f87171);
-  color: #ffffff;
-}
-
-#setInvoice:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-}
-
-#processPDF {
-  background: linear-gradient(135deg, #10b981, #34d399);
-  color: #ffffff;
-}
-
-#processPDF:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-#processPDF:disabled {
-  background: #d1d5db;
-  cursor: not-allowed;
-  opacity: 0.7;
-  box-shadow: none;
-}
-
-/* Focus states for accessibility */
-button:focus, input:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
-}
-
-/* Responsive design */
-@media (max-width: 768px) {
   body {
-    padding: 15px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f6f8fc;
+    padding: 20px;
+    max-width: 1000px;
+    margin: 0 auto;
+    color: #2d3748;
+    line-height: 1.6;
   }
 
+  /* Header styling */
   h2 {
-    font-size: 1.6rem;
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: #1a202c;
+    margin-bottom: 20px;
+    text-align: left;
   }
 
+  /* Form styling */
   #uploadForm {
-    flex-direction: column;
-    align-items: stretch;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background-color: #ffffff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 20px;
   }
 
-  #uploadForm input[type="file"],
+  #uploadForm input[type="file"] {
+    font-size: 0.9rem;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background-color: #f9fafb;
+    transition: border-color 0.3s ease, background-color 0.3s ease;
+  }
+
+  #uploadForm input[type="file"]:hover {
+    border-color: #3182ce;
+    background-color: #edf2ff;
+  }
+
   #uploadForm button {
-    width: 100%;
+    background-color: #3182ce;
+    color: #ffffff;
+    font-weight: 500;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease;
   }
 
+  #uploadForm button:hover {
+    background-color: #2b6cb0;
+    transform: translateY(-1px);
+  }
+
+  #uploadForm button:active {
+    transform: translateY(0);
+  }
+
+  /* Preview container and canvas */
+  #preview-container {
+    position: relative;
+    margin-bottom: 20px;
+  }
+
+  canvas#pdfCanvas {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Selector styling */
+  .selector {
+    position: absolute;
+    pointer-events: none;
+    transition: border-color 0.3s ease;
+  }
+
+  .label-selector {
+    border: 2px dashed #3182ce;
+  }
+
+  .invoice-selector {
+    border: 2px dashed #e53e3e;
+  }
+
+  .label-selector::before,
+  .invoice-selector::before {
+    content: attr(data-type);
+    position: absolute;
+    top: -20px;
+    left: 0;
+    background: #2d3748;
+    color: #ffffff;
+    padding: 3px 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  /* Buttons section */
   div:last-of-type {
-    flex-direction: column;
-    align-items: stretch;
+    display: flex;
+    gap: 10px;
   }
 
   button {
-    width: 100%;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
   }
-}
 
-/* Smooth transitions for all elements */
-* {
-  transition: all 0.3s ease-in-out;
-}
+  #setLabel {
+    background-color: #3182ce;
+    color: #ffffff;
+  }
+
+  #setLabel:hover {
+    background-color: #2b6cb0;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(49, 130, 206, 0.2);
+  }
+
+  #setInvoice {
+    background-color: #e53e3e;
+    color: #ffffff;
+  }
+
+  #setInvoice:hover {
+    background-color: #c53030;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(229, 62, 62, 0.2);
+  }
+
+  #processPDF {
+    background-color: #38a169;
+    color: #ffffff;
+  }
+
+  #processPDF:hover:not(:disabled) {
+    background-color: #2f855a;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(56, 161, 105, 0.2);
+  }
+
+  #processPDF:disabled {
+    background-color: #e2e8f0;
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  /* Responsive design */
+  @media (max-width: 768px) {
+    body {
+      padding: 15px;
+    }
+
+    h2 {
+      font-size: 1.5rem;
+    }
+
+    #uploadForm {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    #uploadForm input[type="file"],
+    #uploadForm button {
+      width: 100%;
+    }
+
+    div:last-of-type {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    button {
+      width: 100%;
+    }
+  }
 </style>
 </head>
 <body>
