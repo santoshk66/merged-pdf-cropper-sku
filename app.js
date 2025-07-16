@@ -1,10 +1,11 @@
+
 import express from "express";
 import multer from "multer";
 import cors from "cors";
 import fs from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { extractSkusFromCSV, generatePicklistCSV } from "./skuUtils.js";
+import { parseMappingCSV, extractSkusFromCSV } from "./skuUtils.js";
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
@@ -13,7 +14,6 @@ app.use(express.static("public"));
 app.use(express.json());
 app.use("/outputs", express.static("outputs"));
 
-// UPLOAD ROUTE
 app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), async (req, res) => {
   try {
     const pdfFile = req.files["pdf"]?.[0];
@@ -34,7 +34,6 @@ app.post("/upload", upload.fields([{ name: "pdf" }, { name: "skuMapping" }]), as
   }
 });
 
-// CROP + PICKLIST ROUTE
 app.post("/crop", async (req, res) => {
   try {
     const { filename, labelBox, invoiceBox, skuList } = req.body;
@@ -58,12 +57,12 @@ app.post("/crop", async (req, res) => {
 
       const sku = skuList[i] || "default";
       labelPage.drawText(`SKU: ${sku}`, {
-        x: 5,
-        y: 0,
-        font,
-        size: 8,
-        color: rgb(0, 0, 0),
-      });
+          x: 5,
+          y: 0,
+          font,
+          size: 8,
+          color: rgb(0, 0, 0)
+        });
 
       invoicePage.drawPage(embedded, {
         x: -invoiceBox.x,
@@ -71,21 +70,10 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // Save final cropped PDF
     const pdfBytes = await outPdf.save();
-    const outputPdfPath = `outputs/output-${filename}`;
-    await fs.writeFile(outputPdfPath, pdfBytes);
-
-    // Generate picklist CSV
-    const csvContent = generatePicklistCSV(skuList);
-    const csvPath = `outputs/picklist-${filename}.csv`;
-    await fs.writeFile(csvPath, csvContent);
-
-    // Response
-    res.json({
-      outputPdfUrl: `/outputs/output-${filename}`,
-      picklistUrl: `/outputs/picklist-${filename}.csv`
-    });
+    const outputPath = `outputs/output-${filename}`;
+    await fs.writeFile(outputPath, pdfBytes);
+    res.json({ outputUrl: `/outputs/output-${filename}` });
   } catch (err) {
     console.error("Crop error", err);
     res.status(500).json({ error: "Crop failed" });
@@ -93,4 +81,4 @@ app.post("/crop", async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`✅ Server running on port ${port}`));
+app.listen(port, () => console.log(`Server running on ${port}`));
