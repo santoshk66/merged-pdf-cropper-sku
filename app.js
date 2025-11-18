@@ -125,7 +125,7 @@ app.post("/crop", async (req, res) => {
         // Bottom-left position (a little inset from edges)
         const fontSize = 8;
         const textX = 5;          // left margin
-        const textY = 1;          // bottom margin
+        const textY = 3;          // bottom margin
 
         labelPage.drawText(`SKU: ${sku}`, {
           x: textX,
