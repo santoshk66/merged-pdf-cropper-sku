@@ -123,7 +123,7 @@ app.post("/crop", async (req, res) => {
 
       if (sku) {
         // Bottom-left position (a little inset from edges)
-        const fontSize = 6;
+        const fontSize = 8;
         const textX = 5;          // left margin
         const textY = 5;          // bottom margin
 
