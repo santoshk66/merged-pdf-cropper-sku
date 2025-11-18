@@ -11,9 +11,6 @@ let pdfFilename = null;
 let mappingFilename = null;
 let orderIdsByPage = [];
 
-// Higher scale = sharper preview
-let pdfScale = 1.8;
-
 const canvas = document.getElementById("pdfCanvas");
 const ctx = canvas.getContext("2d");
 const labelBoxEl = document.getElementById("labelBox");
@@ -42,16 +39,6 @@ function updateProcessButtonState() {
     pdfFilename &&
     orderIdsByPage.length > 0
   );
-}
-
-// Convert a box from canvas coordinates → real PDF coordinates
-function toPdfCoords(box) {
-  return {
-    x: box.x / pdfScale,
-    y: box.y / pdfScale,
-    width: box.width / pdfScale,
-    height: box.height / pdfScale,
-  };
 }
 
 // ===== Canvas crop selection events =====
@@ -90,16 +77,15 @@ canvas.addEventListener("mouseup", () => {
   isDragging = null;
 });
 
-// Click these, then drag on canvas to set / reset crop
 setLabelBtn.onclick = () => (isDragging = "label");
 setInvoiceBtn.onclick = () => (isDragging = "invoice");
 
-// ===== Render first page for preview with high resolution =====
+// ===== Render first page for preview =====
 async function renderFirstPage() {
   if (!pdfDoc) return;
   pageNum = 1;
   const page = await pdfDoc.getPage(pageNum);
-  const viewport = page.getViewport({ scale: pdfScale });
+  const viewport = page.getViewport({ scale: 1.0 });
 
   canvas.width = viewport.width;
   canvas.height = viewport.height;
@@ -111,7 +97,6 @@ async function renderFirstPage() {
 async function extractOrderIdsFromPdf(pdfFile) {
   const arrayBuffer = await pdfFile.arrayBuffer();
 
-  // load pdf (scale doesn't matter for text extraction)
   pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const totalPages = pdfDoc.numPages;
   orderIdsByPage = [];
@@ -121,6 +106,7 @@ async function extractOrderIdsFromPdf(pdfFile) {
     const textContent = await page.getTextContent();
     const fullText = textContent.items.map((it) => it.str).join(" ");
 
+    // Pattern: "Order Id: OD335943794094258100"
     const match = fullText.match(/Order Id[:\s]*?(OD\d+)/i);
     if (match) {
       orderIdsByPage.push(match[1]);
@@ -131,7 +117,6 @@ async function extractOrderIdsFromPdf(pdfFile) {
 
   console.log("Detected orderIdsByPage:", orderIdsByPage);
 
-  // After extracting text, show the high-res preview
   await renderFirstPage();
 }
 
@@ -154,7 +139,7 @@ uploadForm.addEventListener("submit", async (e) => {
   }
 
   try {
-    // 1) Locally load PDF and detect order IDs
+    // 1) Load PDF locally with pdf.js and extract Order Ids
     await extractOrderIdsFromPdf(pdfFile);
 
     if (!orderIdsByPage.some((id) => !!id)) {
@@ -200,8 +185,8 @@ processBtn.addEventListener("click", async () => {
     const payload = {
       pdfFilename,
       mappingFilename,
-      labelBox: toPdfCoords(labelBox),     // convert to real PDF coords
-      invoiceBox: toPdfCoords(invoiceBox), // convert to real PDF coords
+      labelBox,
+      invoiceBox,
       orderIdsByPage,
     };
 
