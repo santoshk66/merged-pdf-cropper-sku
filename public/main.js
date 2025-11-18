@@ -20,7 +20,7 @@ const setInvoiceBtn = document.getElementById("setInvoice");
 const processBtn = document.getElementById("processPDF");
 const uploadForm = document.getElementById("uploadForm");
 
-// Configure pdf.js worker
+// pdf.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
 
@@ -80,17 +80,32 @@ canvas.addEventListener("mouseup", () => {
 setLabelBtn.onclick = () => (isDragging = "label");
 setInvoiceBtn.onclick = () => (isDragging = "invoice");
 
-// ===== Render first page for preview =====
+// ===== Render first page: higher resolution, same visual size =====
 async function renderFirstPage() {
   if (!pdfDoc) return;
   pageNum = 1;
-  const page = await pdfDoc.getPage(pageNum);
-  const viewport = page.getViewport({ scale: 1.0 });
 
+  const page = await pdfDoc.getPage(pageNum);
+
+  // We want SAME visual size, but sharper.
+  const dpr = window.devicePixelRatio || 1;
+  const baseScale = 1.0;               // page size (do not change)
+  const viewport = page.getViewport({ scale: baseScale * dpr });
+
+  // Internal canvas pixels = big (sharp)
   canvas.width = viewport.width;
   canvas.height = viewport.height;
 
-  await page.render({ canvasContext: ctx, viewport }).promise;
+  // CSS size = original (so on screen page size doesn't change)
+  canvas.style.width = viewport.width / dpr + "px";
+  canvas.style.height = viewport.height / dpr + "px";
+
+  const renderContext = {
+    canvasContext: ctx,
+    viewport,
+  };
+
+  await page.render(renderContext).promise;
 }
 
 // ===== Extract Order Id from each page =====
@@ -106,7 +121,6 @@ async function extractOrderIdsFromPdf(pdfFile) {
     const textContent = await page.getTextContent();
     const fullText = textContent.items.map((it) => it.str).join(" ");
 
-    // Pattern: "Order Id: OD335943794094258100"
     const match = fullText.match(/Order Id[:\s]*?(OD\d+)/i);
     if (match) {
       orderIdsByPage.push(match[1]);
@@ -139,7 +153,7 @@ uploadForm.addEventListener("submit", async (e) => {
   }
 
   try {
-    // 1) Load PDF locally with pdf.js and extract Order Ids
+    // 1) Detect order IDs locally
     await extractOrderIdsFromPdf(pdfFile);
 
     if (!orderIdsByPage.some((id) => !!id)) {
@@ -182,6 +196,8 @@ processBtn.addEventListener("click", async () => {
   }
 
   try {
+    // We used scale=1 for visual size (CSS), so
+    // labelBox / invoiceBox are already in PDF coordinate units.
     const payload = {
       pdfFilename,
       mappingFilename,
