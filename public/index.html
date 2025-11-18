@@ -3,10 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>PDF Cropper with SKU</title>
+  <title>Flipkart PDF Cropper + SKU Mapper</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-  /* Reset default margins and ensure smooth rendering */
   * {
     margin: 0;
     padding: 0;
@@ -23,7 +22,6 @@
     line-height: 1.6;
   }
 
-  /* Header styling */
   h2 {
     font-size: 1.8rem;
     font-weight: 600;
@@ -32,7 +30,6 @@
     text-align: left;
   }
 
-  /* Form styling */
   #uploadForm {
     display: flex;
     gap: 10px;
@@ -78,7 +75,6 @@
     transform: translateY(0);
   }
 
-  /* Preview container and canvas */
   #preview-container {
     position: relative;
     margin-bottom: 20px;
@@ -90,7 +86,6 @@
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
   }
 
-  /* Selector styling */
   .selector {
     position: absolute;
     pointer-events: none;
@@ -120,8 +115,7 @@
     text-transform: uppercase;
   }
 
-  /* Buttons section */
-  div:last-of-type {
+  div.buttons-row {
     display: flex;
     gap: 10px;
   }
@@ -175,7 +169,6 @@
     opacity: 0.7;
   }
 
-  /* Responsive design */
   @media (max-width: 768px) {
     body {
       padding: 15px;
@@ -195,7 +188,7 @@
       width: 100%;
     }
 
-    div:last-of-type {
+    div.buttons-row {
       flex-direction: column;
       align-items: stretch;
     }
@@ -204,26 +197,27 @@
       width: 100%;
     }
   }
-</style>
+  </style>
 </head>
 <body>
-  <h2>Upload PDF & SKU Mapping</h2>
+  <h2>Upload Flipkart Label PDF & Order CSV</h2>
+
   <form id="uploadForm">
     <input type="file" name="pdf" accept="application/pdf" required />
-    <input type="file" name="skuMapping" accept=".csv" />
-    <button type="submit">Upload</button>
+    <input type="file" name="skuMapping" accept=".csv" required />
+    <button type="submit">Upload & Detect Orders</button>
   </form>
 
-  <div id="preview-container" style="position:relative;">
+  <div id="preview-container">
     <canvas id="pdfCanvas"></canvas>
     <div id="labelBox" class="selector label-selector" data-type="Label"></div>
     <div id="invoiceBox" class="selector invoice-selector" data-type="Invoice"></div>
   </div>
 
-  <div>
-    <button id="setLabel">Set Label Crop</button>
-    <button id="setInvoice">Set Invoice Crop</button>
-    <button id="processPDF" disabled>Process PDF</button>
+  <div class="buttons-row">
+    <button id="setLabel" type="button">Set Label Crop</button>
+    <button id="setInvoice" type="button">Set Invoice Crop</button>
+    <button id="processPDF" type="button" disabled>Process PDF</button>
   </div>
 
   <script src="main.js"></script>
