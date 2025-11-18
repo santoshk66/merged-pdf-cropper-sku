@@ -17,18 +17,6 @@ app.use(express.json());
 app.use(express.static("public"));
 app.use("/outputs", express.static("outputs"));
 
-/**
- * POST /upload
- * Expects: multipart/form-data with fields:
- *  - pdf (Flipkart label PDF)
- *  - skuMapping (CSV file with Order Id, SKU, etc.)
- *
- * Response:
- *  {
- *    pdfFilename: "xxx",
- *    mappingFilename: "yyy" | null
- *  }
- */
 app.post(
   "/upload",
   upload.fields([
@@ -61,7 +49,7 @@ app.post(
 
       res.json({
         pdfFilename: pdfFinalName,
-        mappingFilename, // can be null if CSV not provided
+        mappingFilename,
       });
     } catch (err) {
       console.error("Upload error", err);
@@ -70,21 +58,6 @@ app.post(
   }
 );
 
-/**
- * POST /crop
- * JSON body:
- *  {
- *    pdfFilename: "xxx",
- *    mappingFilename: "yyy" | null,
- *    labelBox: { x, y, width, height },
- *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD...", null, ...]
- *  }
- *
- * Creates a new PDF, each original page -> 2 pages:
- *   - Cropped label with SKU & mapping info text
- *   - Cropped invoice
- */
 app.post("/crop", async (req, res) => {
   try {
     const {
@@ -98,7 +71,6 @@ app.post("/crop", async (req, res) => {
     if (!pdfFilename) {
       return res.status(400).json({ error: "Missing pdfFilename" });
     }
-
     if (!labelBox || !invoiceBox) {
       return res.status(400).json({ error: "Missing crop boxes" });
     }
@@ -133,63 +105,39 @@ app.post("/crop", async (req, res) => {
       const [page] = await outPdf.copyPages(inputPdf, [i]);
       const { height } = page.getSize();
 
-      // Create new pages for cropped label & invoice
       const labelPage = outPdf.addPage([label.width, label.height]);
       const invoicePage = outPdf.addPage([invoice.width, invoice.height]);
 
       const embedded = await outPdf.embedPage(page);
 
-      // ---- LABEL CROP ----
-      // Note: pdf-lib coordinates origin is bottom-left
-      // We have label.y from top in canvas; convert
+      // ===== LABEL CROP =====
       labelPage.drawPage(embedded, {
         x: -label.x,
         y: -(height - label.y - label.height),
       });
 
-      // Mapping via Order Id
+      // --- Only map SKU using Order Id ---
       const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
-
-      // Pull columns from CSV row
       const sku = (row["SKU"] || "").toString();
-      const fsn = (row["FSN"] || "").toString();
-      const product = (row["Product"] || "").toString();
-      const qty = (row["Quantity"] || "").toString();
-      const invoiceAmt = (row["Invoice Amount"] || "").toString();
-      const shipName = (row["Ship to name"] || "").toString();
-      const city = (row["City"] || "").toString();
-      const state = (row["State"] || "").toString();
-      const pincode = (row["PIN Code"] || "").toString();
 
-      const lines = [
-        orderId ? `Order: ${orderId}` : null,
-        sku ? `SKU: ${sku}` : null,
-        fsn ? `FSN: ${fsn}` : null,
-        product ? `Prod: ${product}` : null,
-        (qty || invoiceAmt) ? `Qty: ${qty}   Amt: ${invoiceAmt}` : null,
-        (city || state || pincode)
-          ? `City: ${city}, ${state} - ${pincode}`
-          : null,
-        shipName ? `Ship To: ${shipName}` : null,
-      ].filter(Boolean);
+      if (sku) {
+        // Bottom-left position (a little inset from edges)
+        const fontSize = 10;
+        const textX = 5;          // left margin
+        const textY = 5;          // bottom margin
 
-      const fontSize = 7;
-      let textY = label.height - 10; // start near top
-      const textX = 5;
-
-      for (const line of lines) {
-        labelPage.drawText(line, {
+        labelPage.drawText(`SKU: ${sku}`, {
           x: textX,
           y: textY,
           font,
           size: fontSize,
           color: rgb(0, 0, 0),
         });
-        textY -= fontSize + 2;
       }
+      // ===== END LABEL CROP =====
 
-      // ---- INVOICE CROP ----
+      // ===== INVOICE CROP =====
       invoicePage.drawPage(embedded, {
         x: -invoice.x,
         y: -(height - invoice.y - invoice.height),
