@@ -244,19 +244,35 @@ app.post("/crop", async (req, res) => {
       const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
 
+      // Get original SKU from CSV row
       const rawSku = (row["SKU"] || "").toString().trim();
-
+      
+      // Apply correction mapping if available
       let finalSku = rawSku;
       if (rawSku && skuCorrectionMap[rawSku]) {
         finalSku = skuCorrectionMap[rawSku];
       }
-
-      if (finalSku) {
-        const fontSize = 6;
-        const textX = 10;
+      
+      // Read quantity from CSV (supports both "Quantity" and "Qty")
+      const qtyRaw =
+        (row["Quantity"] ||
+          row["Qty"] ||
+          row["quantity"] ||
+          row["qty"] ||
+          "").toString().trim();
+      
+      // Build label text: "k8 microphone (10)" or just "k8 microphone"
+      let labelText = finalSku;
+      if (finalSku && qtyRaw) {
+        labelText = `${finalSku} (${qtyRaw})`;
+      }
+      
+      if (labelText) {
+        const fontSize = 6;   // keep your existing font size
+        const textX = 10;     // same position as before
         const textY = 5;
-
-        labelPage.drawText(`SKU: ${finalSku}`, {
+      
+        labelPage.drawText(labelText, {
           x: textX,
           y: textY,
           font,
@@ -264,6 +280,7 @@ app.post("/crop", async (req, res) => {
           color: rgb(0, 0, 0),
         });
       }
+
 
       // ===== INVOICE CROP =====
       invoicePage.drawPage(embedded, {
