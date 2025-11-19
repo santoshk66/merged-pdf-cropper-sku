@@ -5,8 +5,7 @@ import { parse } from "csv-parse/sync";
  * Flipkart Order CSV:
  * Build map: Order Id -> full row
  *
- * Expected column (case-sensitive in file, we use exact header):
- *   "Order Id"
+ * Expected header: "Order Id"
  */
 export function buildOrderMapFromCSV(buffer) {
   const records = parse(buffer, {
@@ -28,16 +27,15 @@ export function buildOrderMapFromCSV(buffer) {
 }
 
 /**
- * SKU Correction CSV:
- * Columns (case-insensitive, spaces allowed):
+ * SKU Correction CSV (old sku,new sku):
+ *
+ * Headers (case-insensitive):
  *   "old sku"
  *   "new sku"
  *
  * Example:
  *   old sku,new sku
- *   A-GrouK8Mic,A-GrouK8MIC-NEW
- *
- * We relax column counts so blank / broken lines don't crash.
+ *   A-GrouK8Mic,A-GrouK8Mic-NEW
  *
  * Returns: { [oldSku]: newSku }
  */
@@ -70,7 +68,6 @@ export function buildSkuCorrectionMapFromCSV(buffer) {
     const oldSku = oldSkuRaw?.toString().trim();
     const newSku = newSkuRaw?.toString().trim();
 
-    // only keep rows where both are present
     if (oldSku && newSku) {
       skuMap[oldSku] = newSku;
     }
