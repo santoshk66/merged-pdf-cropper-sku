@@ -121,7 +121,6 @@ app.post("/crop", async (req, res) => {
     const {
       pdfFilename,
       mappingFilename,
-      skuDbFilename,
       labelBox,
       invoiceBox,
       orderIdsByPage = [],
@@ -144,42 +143,18 @@ app.post("/crop", async (req, res) => {
     const label = normalizeBox(labelBox);
     const invoice = normalizeBox(invoiceBox);
 
-    // ✅ Safety: avoid 0 / negative width & height (pdf-lib crashes on that)
-    if (
-      !label.width ||
-      !label.height ||
-      !invoice.width ||
-      !invoice.height ||
-      label.width <= 0 ||
-      label.height <= 0 ||
-      invoice.width <= 0 ||
-      invoice.height <= 0
-    ) {
-      return res
-        .status(400)
-        .json({ error: "Invalid crop dimensions (width/height must be > 0)" });
-    }
-
-    const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
-    const pdfData = await fsPromises.readFile(pdfPath);
+    const pdfPath = path.join("uploads", pdfFilename);
+    const pdfData = await fs.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
     const outPdf = await PDFDocument.create();
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
-    // Build Order Id → row map from full Flipkart CSV
+    // Build Order Id → row map from CSV (if provided)
     let orderMap = {};
     if (mappingFilename) {
-      const csvPath = path.join(UPLOAD_DIR, mappingFilename);
-      const csvBuffer = await fsPromises.readFile(csvPath);
+      const csvPath = path.join("uploads", mappingFilename);
+      const csvBuffer = await fs.readFile(csvPath);
       orderMap = buildOrderMapFromCSV(csvBuffer);
-    }
-
-    // Build old sku -> new sku map from SKU DB CSV
-    let skuCorrectionMap = {};
-    if (skuDbFilename) {
-      const skuDbPath = path.join(UPLOAD_DIR, skuDbFilename);
-      const skuDbBuffer = await fsPromises.readFile(skuDbPath);
-      skuCorrectionMap = buildSkuCorrectionMapFromCSV(skuDbBuffer);
     }
 
     const pageCount = inputPdf.getPageCount();
@@ -199,25 +174,18 @@ app.post("/crop", async (req, res) => {
         y: -(height - label.y - label.height),
       });
 
-      // Get row via Order Id
+      // --- Only map SKU using Order Id ---
       const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
+      const sku = (row["SKU"] || "").toString();
 
-      // Raw SKU from Flipkart CSV
-      const rawSku = (row["SKU"] || "").toString().trim();
+      if (sku) {
+        // Bottom-left position (a little inset from edges)
+        const fontSize = 8;
+        const textX = 5;          // left margin
+        const textY = 3;          // bottom margin
 
-      // Correct SKU if present in your SKU DB
-      let finalSku = rawSku;
-      if (rawSku && skuCorrectionMap[rawSku]) {
-        finalSku = skuCorrectionMap[rawSku];
-      }
-
-      if (finalSku) {
-        const fontSize = 6; // adjust if needed
-        const textX = 10;
-        const textY = 5;
-
-        labelPage.drawText(`SKU: ${finalSku}`, {
+        labelPage.drawText(`SKU: ${sku}`, {
           x: textX,
           y: textY,
           font,
@@ -225,6 +193,7 @@ app.post("/crop", async (req, res) => {
           color: rgb(0, 0, 0),
         });
       }
+      // ===== END LABEL CROP =====
 
       // ===== INVOICE CROP =====
       invoicePage.drawPage(embedded, {
@@ -235,16 +204,13 @@ app.post("/crop", async (req, res) => {
 
     const pdfBytes = await outPdf.save();
     const outputName = `output-${pdfFilename}.pdf`;
-    const outputPath = path.join(OUTPUT_DIR, outputName);
-    await fsPromises.writeFile(outputPath, pdfBytes);
+    const outputPath = path.join("outputs", outputName);
+    await fs.writeFile(outputPath, pdfBytes);
 
     res.json({ outputUrl: `/outputs/${outputName}` });
   } catch (err) {
-    // 🔴 IMPORTANT: send back the real error text
     console.error("Crop error", err);
-    res
-      .status(500)
-      .json({ error: `Crop failed: ${err.message || "Unknown error"}` });
+    res.status(500).json({ error: "Crop failed" });
   }
 });
 
