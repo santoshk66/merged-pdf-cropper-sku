@@ -2,7 +2,8 @@
 import express from "express";
 import multer from "multer";
 import cors from "cors";
-import fs from "fs/promises";
+import fs from "fs";
+import fsPromises from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import {
@@ -11,14 +12,28 @@ import {
 } from "./skuUtils.js";
 
 const app = express();
-const upload = multer({ dest: "uploads/" });
+
+// Ensure these directories exist (important on Render)
+const UPLOAD_DIR = "uploads";
+const OUTPUT_DIR = "outputs";
+
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+if (!fs.existsSync(OUTPUT_DIR)) {
+  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+}
+
+// Multer config
+const upload = multer({ dest: UPLOAD_DIR });
 
 app.use(cors());
 app.use(express.json());
 
-// serve frontend & output PDFs
+// Serve frontend & output PDFs
 app.use(express.static("public"));
-app.use("/outputs", express.static("outputs"));
+app.use("/outputs", express.static(OUTPUT_DIR));
 
 /**
  * POST /upload
@@ -46,8 +61,11 @@ app.post(
 
       // Save PDF
       const pdfFinalName = pdfFile.filename;
-      const pdfFinalPath = path.join("uploads", pdfFinalName);
-      await fs.writeFile(pdfFinalPath, await fs.readFile(pdfFile.path));
+      const pdfFinalPath = path.join(UPLOAD_DIR, pdfFinalName);
+      await fsPromises.writeFile(
+        pdfFinalPath,
+        await fsPromises.readFile(pdfFile.path)
+      );
 
       let mappingFilename = null;
       let skuDbFilename = null;
@@ -55,16 +73,22 @@ app.post(
       // Save full order mapping CSV
       if (csvFile) {
         const csvFinalName = csvFile.filename;
-        const csvFinalPath = path.join("uploads", csvFinalName);
-        await fs.writeFile(csvFinalPath, await fs.readFile(csvFile.path));
+        const csvFinalPath = path.join(UPLOAD_DIR, csvFinalName);
+        await fsPromises.writeFile(
+          csvFinalPath,
+          await fsPromises.readFile(csvFile.path)
+        );
         mappingFilename = csvFinalName;
       }
 
       // Save SKU correction CSV (old sku,new sku)
       if (skuDbFile) {
         const skuDbFinalName = skuDbFile.filename;
-        const skuDbFinalPath = path.join("uploads", skuDbFinalName);
-        await fs.writeFile(skuDbFinalPath, await fs.readFile(skuDbFile.path));
+        const skuDbFinalPath = path.join(UPLOAD_DIR, skuDbFinalName);
+        await fsPromises.writeFile(
+          skuDbFinalPath,
+          await fsPromises.readFile(skuDbFile.path)
+        );
         skuDbFilename = skuDbFinalName;
       }
 
@@ -120,8 +144,8 @@ app.post("/crop", async (req, res) => {
     const label = normalizeBox(labelBox);
     const invoice = normalizeBox(invoiceBox);
 
-    const pdfPath = path.join("uploads", pdfFilename);
-    const pdfData = await fs.readFile(pdfPath);
+    const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
+    const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
     const outPdf = await PDFDocument.create();
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
@@ -129,16 +153,16 @@ app.post("/crop", async (req, res) => {
     // Build Order Id → row map from full Flipkart CSV
     let orderMap = {};
     if (mappingFilename) {
-      const csvPath = path.join("uploads", mappingFilename);
-      const csvBuffer = await fs.readFile(csvPath);
+      const csvPath = path.join(UPLOAD_DIR, mappingFilename);
+      const csvBuffer = await fsPromises.readFile(csvPath);
       orderMap = buildOrderMapFromCSV(csvBuffer);
     }
 
     // Build old sku -> new sku map from SKU DB CSV
     let skuCorrectionMap = {};
     if (skuDbFilename) {
-      const skuDbPath = path.join("uploads", skuDbFilename);
-      const skuDbBuffer = await fs.readFile(skuDbPath);
+      const skuDbPath = path.join(UPLOAD_DIR, skuDbFilename);
+      const skuDbBuffer = await fsPromises.readFile(skuDbPath);
       skuCorrectionMap = buildSkuCorrectionMapFromCSV(skuDbBuffer);
     }
 
@@ -173,9 +197,9 @@ app.post("/crop", async (req, res) => {
       }
 
       if (finalSku) {
-        const fontSize = 6;  // small so it fits nicely
-        const textX = 10;    // adjust x as you like
-        const textY = 5;     // bottom-left
+        const fontSize = 6; // you can adjust
+        const textX = 10;   // position tweak as needed
+        const textY = 5;
 
         labelPage.drawText(`SKU: ${finalSku}`, {
           x: textX,
@@ -195,8 +219,8 @@ app.post("/crop", async (req, res) => {
 
     const pdfBytes = await outPdf.save();
     const outputName = `output-${pdfFilename}.pdf`;
-    const outputPath = path.join("outputs", outputName);
-    await fs.writeFile(outputPath, pdfBytes);
+    const outputPath = path.join(OUTPUT_DIR, outputName);
+    await fsPromises.writeFile(outputPath, pdfBytes);
 
     res.json({ outputUrl: `/outputs/${outputName}` });
   } catch (err) {
@@ -206,4 +230,7 @@ app.post("/crop", async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
+// Bind to 0.0.0.0 for Render
+app.listen(port, "0.0.0.0", () =>
+  console.log(`Server running on port ${port}`)
+);
