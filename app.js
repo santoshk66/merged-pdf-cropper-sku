@@ -5,7 +5,10 @@ import cors from "cors";
 import fs from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { buildOrderMapFromCSV } from "./skuUtils.js";
+import {
+  buildOrderMapFromCSV,
+  buildSkuCorrectionMapFromCSV,
+} from "./skuUtils.js";
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
@@ -13,20 +16,29 @@ const upload = multer({ dest: "uploads/" });
 app.use(cors());
 app.use(express.json());
 
-// Serve static frontend and outputs
+// serve frontend & output PDFs
 app.use(express.static("public"));
 app.use("/outputs", express.static("outputs"));
 
+/**
+ * POST /upload
+ * multipart/form-data:
+ *  - pdf        (label PDF)
+ *  - skuMapping (full Flipkart CSV: Order Id, SKU, etc)
+ *  - skuDb      (correction CSV: old sku, new sku)
+ */
 app.post(
   "/upload",
   upload.fields([
     { name: "pdf", maxCount: 1 },
     { name: "skuMapping", maxCount: 1 },
+    { name: "skuDb", maxCount: 1 },
   ]),
   async (req, res) => {
     try {
       const pdfFile = req.files["pdf"]?.[0];
       const csvFile = req.files["skuMapping"]?.[0];
+      const skuDbFile = req.files["skuDb"]?.[0];
 
       if (!pdfFile) {
         return res.status(400).json({ error: "Missing PDF file" });
@@ -38,8 +50,9 @@ app.post(
       await fs.writeFile(pdfFinalPath, await fs.readFile(pdfFile.path));
 
       let mappingFilename = null;
+      let skuDbFilename = null;
 
-      // Save CSV if present
+      // Save full order mapping CSV
       if (csvFile) {
         const csvFinalName = csvFile.filename;
         const csvFinalPath = path.join("uploads", csvFinalName);
@@ -47,9 +60,18 @@ app.post(
         mappingFilename = csvFinalName;
       }
 
+      // Save SKU correction CSV (old sku,new sku)
+      if (skuDbFile) {
+        const skuDbFinalName = skuDbFile.filename;
+        const skuDbFinalPath = path.join("uploads", skuDbFinalName);
+        await fs.writeFile(skuDbFinalPath, await fs.readFile(skuDbFile.path));
+        skuDbFilename = skuDbFinalName;
+      }
+
       res.json({
         pdfFilename: pdfFinalName,
         mappingFilename,
+        skuDbFilename,
       });
     } catch (err) {
       console.error("Upload error", err);
@@ -58,11 +80,24 @@ app.post(
   }
 );
 
+/**
+ * POST /crop
+ * JSON:
+ *  {
+ *    pdfFilename,
+ *    mappingFilename,
+ *    skuDbFilename,
+ *    labelBox: { x, y, width, height },
+ *    invoiceBox: { x, y, width, height },
+ *    orderIdsByPage: [ "OD...", "OD...", ... ]
+ *  }
+ */
 app.post("/crop", async (req, res) => {
   try {
     const {
       pdfFilename,
       mappingFilename,
+      skuDbFilename,
       labelBox,
       invoiceBox,
       orderIdsByPage = [],
@@ -91,12 +126,20 @@ app.post("/crop", async (req, res) => {
     const outPdf = await PDFDocument.create();
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
-    // Build Order Id → row map from CSV (if provided)
+    // Build Order Id → row map from full Flipkart CSV
     let orderMap = {};
     if (mappingFilename) {
       const csvPath = path.join("uploads", mappingFilename);
       const csvBuffer = await fs.readFile(csvPath);
       orderMap = buildOrderMapFromCSV(csvBuffer);
+    }
+
+    // Build old sku -> new sku map from SKU DB CSV
+    let skuCorrectionMap = {};
+    if (skuDbFilename) {
+      const skuDbPath = path.join("uploads", skuDbFilename);
+      const skuDbBuffer = await fs.readFile(skuDbPath);
+      skuCorrectionMap = buildSkuCorrectionMapFromCSV(skuDbBuffer);
     }
 
     const pageCount = inputPdf.getPageCount();
@@ -116,18 +159,25 @@ app.post("/crop", async (req, res) => {
         y: -(height - label.y - label.height),
       });
 
-      // --- Only map SKU using Order Id ---
+      // Get row via Order Id
       const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
-      const sku = (row["SKU"] || "").toString();
 
-      if (sku) {
-        // Bottom-left position (a little inset from edges)
-        const fontSize = 8;
-        const textX = 5;          // left margin
-        const textY = 3;          // bottom margin
+      // Raw SKU from Flipkart CSV
+      const rawSku = (row["SKU"] || "").toString().trim();
 
-        labelPage.drawText(`SKU: ${sku}`, {
+      // Correct SKU if present in your SKU DB
+      let finalSku = rawSku;
+      if (rawSku && skuCorrectionMap[rawSku]) {
+        finalSku = skuCorrectionMap[rawSku];
+      }
+
+      if (finalSku) {
+        const fontSize = 6;  // small so it fits nicely
+        const textX = 10;    // adjust x as you like
+        const textY = 5;     // bottom-left
+
+        labelPage.drawText(`SKU: ${finalSku}`, {
           x: textX,
           y: textY,
           font,
@@ -135,7 +185,6 @@ app.post("/crop", async (req, res) => {
           color: rgb(0, 0, 0),
         });
       }
-      // ===== END LABEL CROP =====
 
       // ===== INVOICE CROP =====
       invoicePage.drawPage(embedded, {
