@@ -1,45 +1,20 @@
-// skuUtils.js
 import { parse } from "csv-parse/sync";
 
 /**
- * Flipkart Order CSV:
- * Build map: Order Id -> full row
- * We expect a column: "Order Id"
- */
-export function buildOrderMapFromCSV(buffer) {
-  const records = parse(buffer, {
-    columns: true,
-    skip_empty_lines: true,
-  });
-
-  const orderMap = {};
-
-  for (const record of records) {
-    const orderId = record["Order Id"]?.toString().trim();
-    if (orderId) {
-      orderMap[orderId] = record;
-    }
-  }
-
-  return orderMap;
-}
-
-/**
  * SKU Correction CSV:
- * Exactly 2 columns (case-insensitive, spaces allowed):
+ * Columns (case-insensitive):
  *   "old sku"
  *   "new sku"
  *
- * Example:
- *   old sku,new sku
- *   A-GrouK8Mic,A-GrouK8MIC-NEW
- *
- * Returns: { [oldSku]: newSku }
+ * We now RELAX column count so missing values / bad lines are ignored.
  */
 export function buildSkuCorrectionMapFromCSV(buffer) {
   const records = parse(buffer, {
     columns: true,
     skip_empty_lines: true,
+    relax_column_count: true,        // ✅ allow short/long rows
+    relax_column_count_less: true,   // ✅ specifically allow fewer columns
+    trim: true,
   });
 
   const skuMap = {};
@@ -62,6 +37,7 @@ export function buildSkuCorrectionMapFromCSV(buffer) {
     const oldSku = oldSkuRaw?.toString().trim();
     const newSku = newSkuRaw?.toString().trim();
 
+    // ✅ Only add when both are present
     if (oldSku && newSku) {
       skuMap[oldSku] = newSku;
     }
