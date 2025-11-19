@@ -3,147 +3,157 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>PDF Cropper with Draggable & Resizable Boxes</title>
-
+  <title>Flipkart PDF Cropper + SKU Mapper</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
 
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #f6f8fc;
-      padding: 20px;
-      max-width: 1100px;
-      margin: 0 auto;
-    }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f6f8fc;
+    padding: 20px;
+    max-width: 1000px;
+    margin: 0 auto;
+    color: #2d3748;
+    line-height: 1.6;
+  }
 
-    h2 {
-      margin: 20px 0 10px;
-      font-size: 1.4rem;
-      font-weight: 600;
-      color: #1a202c;
-    }
+  h2 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #1a202c;
+    margin: 20px 0 10px;
+  }
 
-    #uploadForm {
-      background: #fff;
-      padding: 15px;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      display: flex;
-      gap: 15px;
-      margin-bottom: 25px;
-    }
+  #uploadForm, #skuDbForm {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    background-color: #ffffff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 20px;
+  }
 
-    input[type="file"] {
-      padding: 8px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      background: #fafafa;
-    }
+  #uploadForm input[type="file"], #skuDbForm input[type="file"] {
+    font-size: 0.9rem;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background-color: #f9fafb;
+  }
 
-    button {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 6px;
-      background: #3182ce;
-      color: #fff;
-      cursor: pointer;
-      font-weight: 500;
-    }
+  #uploadForm button, #skuDbForm button {
+    background-color: #3182ce;
+    color: #ffffff;
+    font-weight: 500;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
 
-    #preview-container {
-      position: relative;
-      margin-top: 20px;
-    }
+  #preview-container {
+    position: relative;
+    margin-bottom: 20px;
+  }
 
-    canvas {
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      background: #fff;
-    }
+  canvas#pdfCanvas {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  }
 
-    /* Crop Box Styling */
-    .selector {
-      position: absolute;
-      border: 2px dashed #3182ce;
-      background: rgba(0, 0, 0, 0.05);
-      display: none;
-    }
+  .selector {
+    position: absolute;
+    pointer-events: none;
+    transition: border-color 0.3s ease;
+    background: rgba(0, 0, 0, 0.03);
+  }
 
-    .resize-handle {
-      width: 12px;
-      height: 12px;
-      background: #3182ce;
-      border-radius: 50%;
-      position: absolute;
-    }
+  .label-selector {
+    border: 2px dashed #3182ce;
+  }
 
-    .tl { top: -6px; left: -6px; cursor: nw-resize; }
-    .tr { top: -6px; right: -6px; cursor: ne-resize; }
-    .bl { bottom: -6px; left: -6px; cursor: sw-resize; }
-    .br { bottom: -6px; right: -6px; cursor: se-resize; }
+  .invoice-selector {
+    border: 2px dashed #e53e3e;
+  }
 
-    .buttons-row {
-      margin-top: 15px;
-      display: flex;
-      gap: 15px;
-    }
+  .label-selector::before,
+  .invoice-selector::before {
+    content: attr(data-type);
+    position: absolute;
+    top: -20px;
+    left: 0;
+    background: #2d3748;
+    color: #ffffff;
+    padding: 3px 6px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+  }
 
-    #setLabel { background: #3182ce; }
-    #setInvoice { background: #e53e3e; }
-    #processPDF { background: #38a169; }
+  .buttons-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  .buttons-row button {
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  #setLabel { background-color: #3182ce; color: #fff; }
+  #setInvoice { background-color: #e53e3e; color: #fff; }
+  #processPDF { background-color: #38a169; color: #fff; }
+
+  #processPDF:disabled {
+    background-color: #e2e8f0;
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
   </style>
 </head>
-
 <body>
-
-  <h2>Upload Label PDF & Flipkart CSV</h2>
-
+  <h2>Upload Label PDF & Full Flipkart CSV</h2>
   <form id="uploadForm">
     <div>
-      <label>Label PDF:</label><br>
-      <input type="file" name="pdf" accept="application/pdf" required>
+      <label>1. Label PDF:</label><br/>
+      <input type="file" name="pdf" accept="application/pdf" required />
     </div>
-
     <div>
-      <label>Full CSV:</label><br>
-      <input type="file" name="skuMapping" accept=".csv" required>
+      <label>2. Full CSV (Order Id, SKU...):</label><br/>
+      <input type="file" name="skuMapping" accept=".csv" required />
     </div>
-
-    <button type="submit">Upload</button>
+    <button type="submit">Upload & Detect Orders</button>
   </form>
 
-  <h2>PDF Preview & Crop</h2>
+  <h2>Upload SKU DB (old sku,new sku) to Firestore</h2>
+  <form id="skuDbForm">
+    <input type="file" name="skuDb" accept=".csv" required />
+    <button type="submit">Upload SKU DB</button>
+  </form>
 
+  <h2>Preview & Crop</h2>
   <div id="preview-container">
     <canvas id="pdfCanvas"></canvas>
-
-    <!-- LABEL crop box -->
-    <div id="labelBox" class="selector">
-      <div class="resize-handle tl"></div>
-      <div class="resize-handle tr"></div>
-      <div class="resize-handle bl"></div>
-      <div class="resize-handle br"></div>
-    </div>
-
-    <!-- INVOICE crop box -->
-    <div id="invoiceBox" class="selector">
-      <div class="resize-handle tl"></div>
-      <div class="resize-handle tr"></div>
-      <div class="resize-handle bl"></div>
-      <div class="resize-handle br"></div>
-    </div>
+    <div id="labelBox" class="selector label-selector" data-type="Label"></div>
+    <div id="invoiceBox" class="selector invoice-selector" data-type="Invoice"></div>
   </div>
 
   <div class="buttons-row">
-    <button id="setLabel">Select Label Crop</button>
-    <button id="setInvoice">Select Invoice Crop</button>
-    <button id="processPDF" disabled>Process PDF</button>
+    <button id="setLabel" type="button">Set Label Crop</button>
+    <button id="setInvoice" type="button">Set Invoice Crop</button>
+    <button id="processPDF" type="button" disabled>Process PDF</button>
   </div>
 
   <script src="main.js"></script>
