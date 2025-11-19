@@ -116,9 +116,21 @@ app.post(
       const collectionRef = db.collection("skuCorrections");
 
       for (const [oldSku, newSku] of entries) {
-        const docRef = collectionRef.doc(oldSku);
-        batch.set(docRef, { oldSku, newSku }, { merge: true });
+        // Firestore doc IDs cannot contain '/'
+        const safeDocId = oldSku.replace(/\//g, "_");
+      
+        const docRef = collectionRef.doc(safeDocId);
+        batch.set(
+          docRef,
+          {
+            oldSku,     // original value with '/'
+            newSku,
+            safeDocId,  // optional, for debugging
+          },
+          { merge: true }
+        );
       }
+
 
       await batch.commit();
 
