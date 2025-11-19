@@ -27,11 +27,11 @@
     font-weight: 600;
     color: #1a202c;
     margin-bottom: 20px;
-    text-align: left;
   }
 
   #uploadForm {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     align-items: center;
     background-color: #ffffff;
@@ -47,12 +47,6 @@
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     background-color: #f9fafb;
-    transition: border-color 0.3s ease, background-color 0.3s ease;
-  }
-
-  #uploadForm input[type="file"]:hover {
-    border-color: #3182ce;
-    background-color: #edf2ff;
   }
 
   #uploadForm button {
@@ -63,16 +57,6 @@
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    transition: background-color 0.3s ease, transform 0.2s ease;
-  }
-
-  #uploadForm button:hover {
-    background-color: #2b6cb0;
-    transform: translateY(-1px);
-  }
-
-  #uploadForm button:active {
-    transform: translateY(0);
   }
 
   #preview-container {
@@ -90,9 +74,8 @@
     position: absolute;
     pointer-events: none;
     transition: border-color 0.3s ease;
-    background: rgba(0, 0, 0, 0.03); /* NEW: light tint so crop area is visible */
+    background: rgba(0, 0, 0, 0.03);
   }
-
 
   .label-selector {
     border: 2px dashed #3182ce;
@@ -112,101 +95,50 @@
     color: #ffffff;
     padding: 3px 6px;
     font-size: 0.75rem;
-    font-weight: 500;
     border-radius: 4px;
-    text-transform: uppercase;
   }
 
-  div.buttons-row {
+  .buttons-row {
     display: flex;
     gap: 10px;
   }
 
-  button {
+  .buttons-row button {
     padding: 8px 16px;
     font-size: 0.9rem;
     font-weight: 500;
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
   }
 
-  #setLabel {
-    background-color: #3182ce;
-    color: #ffffff;
-  }
-
-  #setLabel:hover {
-    background-color: #2b6cb0;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(49, 130, 206, 0.2);
-  }
-
-  #setInvoice {
-    background-color: #e53e3e;
-    color: #ffffff;
-  }
-
-  #setInvoice:hover {
-    background-color: #c53030;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(229, 62, 62, 0.2);
-  }
-
-  #processPDF {
-    background-color: #38a169;
-    color: #ffffff;
-  }
-
-  #processPDF:hover:not(:disabled) {
-    background-color: #2f855a;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(56, 161, 105, 0.2);
-  }
+  #setLabel { background-color: #3182ce; color: #fff; }
+  #setInvoice { background-color: #e53e3e; color: #fff; }
+  #processPDF { background-color: #38a169; color: #fff; }
 
   #processPDF:disabled {
     background-color: #e2e8f0;
     cursor: not-allowed;
     opacity: 0.7;
   }
-
-  @media (max-width: 768px) {
-    body {
-      padding: 15px;
-    }
-
-    h2 {
-      font-size: 1.5rem;
-    }
-
-    #uploadForm {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    #uploadForm input[type="file"],
-    #uploadForm button {
-      width: 100%;
-    }
-
-    div.buttons-row {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    button {
-      width: 100%;
-    }
-  }
   </style>
 </head>
 <body>
-  <h2>Upload Flipkart Label PDF & Order CSV</h2>
+  <h2>Upload Label PDF, Full CSV & SKU Correction CSV</h2>
 
   <form id="uploadForm">
-    <input type="file" name="pdf" accept="application/pdf" required />
-    <input type="file" name="skuMapping" accept=".csv" required />
+    <div>
+      <label>1. Label PDF:</label><br/>
+      <input type="file" name="pdf" accept="application/pdf" required />
+    </div>
+    <div>
+      <label>2. Full CSV (Order Id, SKU...):</label><br/>
+      <input type="file" name="skuMapping" accept=".csv" required />
+    </div>
+    <div>
+      <label>3. SKU DB CSV (old sku,new sku):</label><br/>
+      <input type="file" name="skuDb" accept=".csv" />
+    </div>
     <button type="submit">Upload & Detect Orders</button>
   </form>
 
