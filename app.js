@@ -144,6 +144,22 @@ app.post("/crop", async (req, res) => {
     const label = normalizeBox(labelBox);
     const invoice = normalizeBox(invoiceBox);
 
+    // ✅ Safety: avoid 0 / negative width & height (pdf-lib crashes on that)
+    if (
+      !label.width ||
+      !label.height ||
+      !invoice.width ||
+      !invoice.height ||
+      label.width <= 0 ||
+      label.height <= 0 ||
+      invoice.width <= 0 ||
+      invoice.height <= 0
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Invalid crop dimensions (width/height must be > 0)" });
+    }
+
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
     const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
@@ -197,8 +213,8 @@ app.post("/crop", async (req, res) => {
       }
 
       if (finalSku) {
-        const fontSize = 6; // you can adjust
-        const textX = 10;   // position tweak as needed
+        const fontSize = 6; // adjust if needed
+        const textX = 10;
         const textY = 5;
 
         labelPage.drawText(`SKU: ${finalSku}`, {
@@ -224,8 +240,11 @@ app.post("/crop", async (req, res) => {
 
     res.json({ outputUrl: `/outputs/${outputName}` });
   } catch (err) {
+    // 🔴 IMPORTANT: send back the real error text
     console.error("Crop error", err);
-    res.status(500).json({ error: "Crop failed" });
+    res
+      .status(500)
+      .json({ error: `Crop failed: ${err.message || "Unknown error"}` });
   }
 });
 
