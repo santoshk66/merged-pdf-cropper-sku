@@ -9,7 +9,6 @@ let startX, startY;
 
 let pdfFilename = null;
 let mappingFilename = null;
-let skuDbFilename = null;
 let orderIdsByPage = [];
 
 const canvas = document.getElementById("pdfCanvas");
@@ -20,8 +19,8 @@ const setLabelBtn = document.getElementById("setLabel");
 const setInvoiceBtn = document.getElementById("setInvoice");
 const processBtn = document.getElementById("processPDF");
 const uploadForm = document.getElementById("uploadForm");
+const skuDbForm = document.getElementById("skuDbForm");
 
-// pdf.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
 
@@ -81,7 +80,7 @@ canvas.addEventListener("mouseup", () => {
 setLabelBtn.onclick = () => (isDragging = "label");
 setInvoiceBtn.onclick = () => (isDragging = "invoice");
 
-// ===== Render first page: high-res but same visual size =====
+// ===== Render first page (high-res, same visual size) =====
 async function renderFirstPage() {
   if (!pdfDoc) return;
   pageNum = 1;
@@ -126,7 +125,7 @@ async function extractOrderIdsFromPdf(pdfFile) {
   await renderFirstPage();
 }
 
-// ===== Handle upload =====
+// ===== Upload Label PDF + Full CSV =====
 uploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -145,7 +144,7 @@ uploadForm.addEventListener("submit", async (e) => {
   }
 
   try {
-    // 1) Detect order IDs locally
+    // Detect order IDs locally
     await extractOrderIdsFromPdf(pdfFile);
 
     if (!orderIdsByPage.some((id) => !!id)) {
@@ -155,7 +154,7 @@ uploadForm.addEventListener("submit", async (e) => {
       if (!proceed) return;
     }
 
-    // 2) Upload files to backend
+    // Upload to backend
     const response = await fetch("/upload", {
       method: "POST",
       body: formData,
@@ -169,16 +168,45 @@ uploadForm.addEventListener("submit", async (e) => {
 
     pdfFilename = json.pdfFilename;
     mappingFilename = json.mappingFilename || null;
-    skuDbFilename = json.skuDbFilename || null;
 
     console.log("Uploaded pdfFilename:", pdfFilename);
     console.log("Uploaded mappingFilename:", mappingFilename);
-    console.log("Uploaded skuDbFilename:", skuDbFilename);
 
     updateProcessButtonState();
   } catch (err) {
     console.error(err);
     alert("Error while processing PDF or uploading files.");
+  }
+});
+
+// ===== Upload SKU DB CSV (old sku,new sku) to Firestore =====
+skuDbForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const formData = new FormData(skuDbForm);
+  const file = formData.get("skuDb");
+  if (!file) {
+    alert("Please select a SKU DB CSV file.");
+    return;
+  }
+
+  try {
+    const res = await fetch("/upload-sku-db", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert("SKU DB upload failed: " + (data.error || "Unknown error"));
+      return;
+    }
+
+    alert(data.message || "SKU DB uploaded successfully.");
+  } catch (err) {
+    console.error(err);
+    alert("Error uploading SKU DB.");
   }
 });
 
@@ -193,7 +221,6 @@ processBtn.addEventListener("click", async () => {
     const payload = {
       pdfFilename,
       mappingFilename,
-      skuDbFilename,
       labelBox,
       invoiceBox,
       orderIdsByPage,
