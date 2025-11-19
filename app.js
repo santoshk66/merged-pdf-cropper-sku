@@ -10,56 +10,51 @@ import {
   buildOrderMapFromCSV,
   buildSkuCorrectionMapFromCSV,
 } from "./skuUtils.js";
+import { db } from "./firebaseAdmin.js";
 
 const app = express();
 
-// Ensure these directories exist (important on Render)
+// Directories
 const UPLOAD_DIR = "uploads";
 const OUTPUT_DIR = "outputs";
 
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
-
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 }
 
-// Multer config
 const upload = multer({ dest: UPLOAD_DIR });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
-// Serve frontend & output PDFs
+// Serve frontend & outputs
 app.use(express.static("public"));
 app.use("/outputs", express.static(OUTPUT_DIR));
 
 /**
  * POST /upload
- * multipart/form-data:
+ * Upload per-run files:
  *  - pdf        (label PDF)
  *  - skuMapping (full Flipkart CSV: Order Id, SKU, etc)
- *  - skuDb      (correction CSV: old sku, new sku)
  */
 app.post(
   "/upload",
   upload.fields([
     { name: "pdf", maxCount: 1 },
     { name: "skuMapping", maxCount: 1 },
-    { name: "skuDb", maxCount: 1 },
   ]),
   async (req, res) => {
     try {
       const pdfFile = req.files["pdf"]?.[0];
       const csvFile = req.files["skuMapping"]?.[0];
-      const skuDbFile = req.files["skuDb"]?.[0];
 
       if (!pdfFile) {
         return res.status(400).json({ error: "Missing PDF file" });
       }
 
-      // Save PDF
       const pdfFinalName = pdfFile.filename;
       const pdfFinalPath = path.join(UPLOAD_DIR, pdfFinalName);
       await fsPromises.writeFile(
@@ -68,9 +63,7 @@ app.post(
       );
 
       let mappingFilename = null;
-      let skuDbFilename = null;
 
-      // Save full order mapping CSV
       if (csvFile) {
         const csvFinalName = csvFile.filename;
         const csvFinalPath = path.join(UPLOAD_DIR, csvFinalName);
@@ -81,25 +74,62 @@ app.post(
         mappingFilename = csvFinalName;
       }
 
-      // Save SKU correction CSV (old sku,new sku)
-      if (skuDbFile) {
-        const skuDbFinalName = skuDbFile.filename;
-        const skuDbFinalPath = path.join(UPLOAD_DIR, skuDbFinalName);
-        await fsPromises.writeFile(
-          skuDbFinalPath,
-          await fsPromises.readFile(skuDbFile.path)
-        );
-        skuDbFilename = skuDbFinalName;
-      }
-
       res.json({
         pdfFilename: pdfFinalName,
         mappingFilename,
-        skuDbFilename,
       });
     } catch (err) {
       console.error("Upload error", err);
       res.status(500).json({ error: "Upload failed" });
+    }
+  }
+);
+
+/**
+ * POST /upload-sku-db
+ * Upload SKU DB CSV (old sku,new sku) and store in Firestore
+ * CSV field name: skuDb
+ */
+app.post(
+  "/upload-sku-db",
+  upload.single("skuDb"),
+  async (req, res) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ error: "Missing skuDb CSV file" });
+      }
+
+      const buffer = await fsPromises.readFile(file.path);
+
+      const skuMap = buildSkuCorrectionMapFromCSV(buffer);
+      const entries = Object.entries(skuMap);
+
+      if (entries.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "No valid SKU mappings found in CSV" });
+      }
+
+      // Write to Firestore: collection "skuCorrections"
+      const batch = db.batch();
+      const collectionRef = db.collection("skuCorrections");
+
+      for (const [oldSku, newSku] of entries) {
+        const docRef = collectionRef.doc(oldSku);
+        batch.set(docRef, { oldSku, newSku }, { merge: true });
+      }
+
+      await batch.commit();
+
+      res.json({
+        message: `Uploaded ${entries.length} SKU mappings to Firestore`,
+      });
+    } catch (err) {
+      console.error("SKU DB upload error", err);
+      res.status(500).json({
+        error: `Failed to upload SKU DB: ${err.message || "Unknown error"}`,
+      });
     }
   }
 );
@@ -110,10 +140,9 @@ app.post(
  *  {
  *    pdfFilename,
  *    mappingFilename,
- *    skuDbFilename,
  *    labelBox: { x, y, width, height },
  *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD...", ... ]
+ *    orderIdsByPage: [ "OD...", "OD..." ... ]
  *  }
  */
 app.post("/crop", async (req, res) => {
@@ -121,7 +150,6 @@ app.post("/crop", async (req, res) => {
     const {
       pdfFilename,
       mappingFilename,
-      skuDbFilename,
       labelBox,
       invoiceBox,
       orderIdsByPage = [],
@@ -144,7 +172,6 @@ app.post("/crop", async (req, res) => {
     const label = normalizeBox(labelBox);
     const invoice = normalizeBox(invoiceBox);
 
-    // ✅ Safety: avoid 0 / negative width & height (pdf-lib crashes on that)
     if (
       !label.width ||
       !label.height ||
@@ -155,9 +182,9 @@ app.post("/crop", async (req, res) => {
       invoice.width <= 0 ||
       invoice.height <= 0
     ) {
-      return res
-        .status(400)
-        .json({ error: "Invalid crop dimensions (width/height must be > 0)" });
+      return res.status(400).json({
+        error: "Invalid crop dimensions (width/height must be > 0)",
+      });
     }
 
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
@@ -166,7 +193,7 @@ app.post("/crop", async (req, res) => {
     const outPdf = await PDFDocument.create();
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
-    // Build Order Id → row map from full Flipkart CSV
+    // 1) Order Id → row map from full Flipkart CSV
     let orderMap = {};
     if (mappingFilename) {
       const csvPath = path.join(UPLOAD_DIR, mappingFilename);
@@ -174,13 +201,15 @@ app.post("/crop", async (req, res) => {
       orderMap = buildOrderMapFromCSV(csvBuffer);
     }
 
-    // Build old sku -> new sku map from SKU DB CSV
+    // 2) SKU corrections from Firestore
     let skuCorrectionMap = {};
-    if (skuDbFilename) {
-      const skuDbPath = path.join(UPLOAD_DIR, skuDbFilename);
-      const skuDbBuffer = await fsPromises.readFile(skuDbPath);
-      skuCorrectionMap = buildSkuCorrectionMapFromCSV(skuDbBuffer);
-    }
+    const snapshot = await db.collection("skuCorrections").get();
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.oldSku && data.newSku) {
+        skuCorrectionMap[data.oldSku] = data.newSku;
+      }
+    });
 
     const pageCount = inputPdf.getPageCount();
 
@@ -203,17 +232,15 @@ app.post("/crop", async (req, res) => {
       const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
 
-      // Raw SKU from Flipkart CSV
       const rawSku = (row["SKU"] || "").toString().trim();
 
-      // Correct SKU if present in your SKU DB
       let finalSku = rawSku;
       if (rawSku && skuCorrectionMap[rawSku]) {
         finalSku = skuCorrectionMap[rawSku];
       }
 
       if (finalSku) {
-        const fontSize = 6; // adjust if needed
+        const fontSize = 6;
         const textX = 10;
         const textY = 5;
 
@@ -240,7 +267,6 @@ app.post("/crop", async (req, res) => {
 
     res.json({ outputUrl: `/outputs/${outputName}` });
   } catch (err) {
-    // 🔴 IMPORTANT: send back the real error text
     console.error("Crop error", err);
     res
       .status(500)
@@ -249,7 +275,6 @@ app.post("/crop", async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-// Bind to 0.0.0.0 for Render
 app.listen(port, "0.0.0.0", () =>
   console.log(`Server running on port ${port}`)
 );
