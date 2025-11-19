@@ -23,13 +23,13 @@
   }
 
   h2 {
-    font-size: 1.8rem;
+    font-size: 1.4rem;
     font-weight: 600;
     color: #1a202c;
-    margin-bottom: 20px;
+    margin: 20px 0 10px;
   }
 
-  #uploadForm {
+  #uploadForm, #skuDbForm {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
@@ -41,7 +41,7 @@
     margin-bottom: 20px;
   }
 
-  #uploadForm input[type="file"] {
+  #uploadForm input[type="file"], #skuDbForm input[type="file"] {
     font-size: 0.9rem;
     padding: 8px;
     border: 1px solid #e2e8f0;
@@ -49,7 +49,7 @@
     background-color: #f9fafb;
   }
 
-  #uploadForm button {
+  #uploadForm button, #skuDbForm button {
     background-color: #3182ce;
     color: #ffffff;
     font-weight: 500;
@@ -124,8 +124,7 @@
   </style>
 </head>
 <body>
-  <h2>Upload Label PDF, Full CSV & SKU Correction CSV</h2>
-
+  <h2>Upload Label PDF & Full Flipkart CSV</h2>
   <form id="uploadForm">
     <div>
       <label>1. Label PDF:</label><br/>
@@ -135,13 +134,16 @@
       <label>2. Full CSV (Order Id, SKU...):</label><br/>
       <input type="file" name="skuMapping" accept=".csv" required />
     </div>
-    <div>
-      <label>3. SKU DB CSV (old sku,new sku):</label><br/>
-      <input type="file" name="skuDb" accept=".csv" />
-    </div>
     <button type="submit">Upload & Detect Orders</button>
   </form>
 
+  <h2>Upload SKU DB (old sku,new sku) to Firestore</h2>
+  <form id="skuDbForm">
+    <input type="file" name="skuDb" accept=".csv" required />
+    <button type="submit">Upload SKU DB</button>
+  </form>
+
+  <h2>Preview & Crop</h2>
   <div id="preview-container">
     <canvas id="pdfCanvas"></canvas>
     <div id="labelBox" class="selector label-selector" data-type="Label"></div>
