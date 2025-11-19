@@ -9,6 +9,7 @@ let startX, startY;
 
 let pdfFilename = null;
 let mappingFilename = null;
+let skuDbFilename = null;
 let orderIdsByPage = [];
 
 const canvas = document.getElementById("pdfCanvas");
@@ -41,7 +42,7 @@ function updateProcessButtonState() {
   );
 }
 
-// ===== Canvas crop selection events =====
+// ===== Crop selection =====
 canvas.addEventListener("mousedown", (e) => {
   if (!isDragging) return;
   const rect = canvas.getBoundingClientRect();
@@ -80,32 +81,23 @@ canvas.addEventListener("mouseup", () => {
 setLabelBtn.onclick = () => (isDragging = "label");
 setInvoiceBtn.onclick = () => (isDragging = "invoice");
 
-// ===== Render first page: higher resolution, same visual size =====
+// ===== Render first page: high-res but same visual size =====
 async function renderFirstPage() {
   if (!pdfDoc) return;
   pageNum = 1;
 
   const page = await pdfDoc.getPage(pageNum);
 
-  // We want SAME visual size, but sharper.
   const dpr = window.devicePixelRatio || 1;
-  const baseScale = 1.0;               // page size (do not change)
+  const baseScale = 1.0;
   const viewport = page.getViewport({ scale: baseScale * dpr });
 
-  // Internal canvas pixels = big (sharp)
   canvas.width = viewport.width;
   canvas.height = viewport.height;
-
-  // CSS size = original (so on screen page size doesn't change)
   canvas.style.width = viewport.width / dpr + "px";
   canvas.style.height = viewport.height / dpr + "px";
 
-  const renderContext = {
-    canvasContext: ctx,
-    viewport,
-  };
-
-  await page.render(renderContext).promise;
+  await page.render({ canvasContext: ctx, viewport }).promise;
 }
 
 // ===== Extract Order Id from each page =====
@@ -134,7 +126,7 @@ async function extractOrderIdsFromPdf(pdfFile) {
   await renderFirstPage();
 }
 
-// ===== Handle upload form (PDF + CSV) =====
+// ===== Handle upload =====
 uploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -148,7 +140,7 @@ uploadForm.addEventListener("submit", async (e) => {
 
   const csvFile = formData.get("skuMapping");
   if (!csvFile) {
-    alert("Please select the CSV mapping file.");
+    alert("Please select the full CSV mapping file.");
     return;
   }
 
@@ -163,7 +155,7 @@ uploadForm.addEventListener("submit", async (e) => {
       if (!proceed) return;
     }
 
-    // 2) Upload PDF + CSV to backend
+    // 2) Upload files to backend
     const response = await fetch("/upload", {
       method: "POST",
       body: formData,
@@ -177,9 +169,11 @@ uploadForm.addEventListener("submit", async (e) => {
 
     pdfFilename = json.pdfFilename;
     mappingFilename = json.mappingFilename || null;
+    skuDbFilename = json.skuDbFilename || null;
 
     console.log("Uploaded pdfFilename:", pdfFilename);
     console.log("Uploaded mappingFilename:", mappingFilename);
+    console.log("Uploaded skuDbFilename:", skuDbFilename);
 
     updateProcessButtonState();
   } catch (err) {
@@ -196,11 +190,10 @@ processBtn.addEventListener("click", async () => {
   }
 
   try {
-    // We used scale=1 for visual size (CSS), so
-    // labelBox / invoiceBox are already in PDF coordinate units.
     const payload = {
       pdfFilename,
       mappingFilename,
+      skuDbFilename,
       labelBox,
       invoiceBox,
       orderIdsByPage,
