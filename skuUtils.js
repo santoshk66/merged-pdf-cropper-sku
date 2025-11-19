@@ -1,19 +1,52 @@
+// skuUtils.js
 import { parse } from "csv-parse/sync";
 
 /**
+ * Flipkart Order CSV:
+ * Build map: Order Id -> full row
+ *
+ * Expected column (case-sensitive in file, we use exact header):
+ *   "Order Id"
+ */
+export function buildOrderMapFromCSV(buffer) {
+  const records = parse(buffer, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+  });
+
+  const orderMap = {};
+
+  for (const record of records) {
+    const orderId = record["Order Id"]?.toString().trim();
+    if (orderId) {
+      orderMap[orderId] = record;
+    }
+  }
+
+  return orderMap;
+}
+
+/**
  * SKU Correction CSV:
- * Columns (case-insensitive):
+ * Columns (case-insensitive, spaces allowed):
  *   "old sku"
  *   "new sku"
  *
- * We now RELAX column count so missing values / bad lines are ignored.
+ * Example:
+ *   old sku,new sku
+ *   A-GrouK8Mic,A-GrouK8MIC-NEW
+ *
+ * We relax column counts so blank / broken lines don't crash.
+ *
+ * Returns: { [oldSku]: newSku }
  */
 export function buildSkuCorrectionMapFromCSV(buffer) {
   const records = parse(buffer, {
     columns: true,
     skip_empty_lines: true,
-    relax_column_count: true,        // ✅ allow short/long rows
-    relax_column_count_less: true,   // ✅ specifically allow fewer columns
+    relax_column_count: true,
+    relax_column_count_less: true,
     trim: true,
   });
 
@@ -37,7 +70,7 @@ export function buildSkuCorrectionMapFromCSV(buffer) {
     const oldSku = oldSkuRaw?.toString().trim();
     const newSku = newSkuRaw?.toString().trim();
 
-    // ✅ Only add when both are present
+    // only keep rows where both are present
     if (oldSku && newSku) {
       skuMap[oldSku] = newSku;
     }
