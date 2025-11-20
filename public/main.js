@@ -4,7 +4,7 @@ let pageNum = 1;
 let labelBox = null;
 let invoiceBox = null;
 
-let isDragging = null;
+let isDrawing = null; // 'label' | 'invoice' | null
 let startX, startY;
 
 let pdfFilename = null;
@@ -13,13 +13,24 @@ let orderIdsByPage = [];
 
 const canvas = document.getElementById("pdfCanvas");
 const ctx = canvas.getContext("2d");
+
 const labelBoxEl = document.getElementById("labelBox");
 const invoiceBoxEl = document.getElementById("invoiceBox");
+
 const setLabelBtn = document.getElementById("setLabel");
 const setInvoiceBtn = document.getElementById("setInvoice");
 const processBtn = document.getElementById("processPDF");
+
 const uploadForm = document.getElementById("uploadForm");
 const skuDbForm = document.getElementById("skuDbForm");
+
+// Drag/resize state
+let activeBoxType = null; // 'label' | 'invoice'
+let isDraggingBox = false;
+let isResizingBox = false;
+let resizeDir = null;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
@@ -41,16 +52,17 @@ function updateProcessButtonState() {
   );
 }
 
-// ===== Crop selection =====
+// ===== DRAW MODE on canvas (initial box selection) =====
 canvas.addEventListener("mousedown", (e) => {
-  if (!isDragging) return;
+  if (!isDrawing) return;
+
   const rect = canvas.getBoundingClientRect();
   startX = e.clientX - rect.left;
   startY = e.clientY - rect.top;
 });
 
 canvas.addEventListener("mousemove", (e) => {
-  if (!isDragging) return;
+  if (!isDrawing) return;
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
@@ -62,25 +74,136 @@ canvas.addEventListener("mousemove", (e) => {
     height: Math.abs(y - startY),
   };
 
-  if (isDragging === "label") {
+  if (isDrawing === "label") {
     labelBox = box;
     updateBox(labelBoxEl, labelBox);
-  } else if (isDragging === "invoice") {
+  } else if (isDrawing === "invoice") {
     invoiceBox = box;
     updateBox(invoiceBoxEl, invoiceBox);
+  }
+  updateProcessButtonState();
+});
+
+canvas.addEventListener("mouseup", () => {
+  isDrawing = null;
+});
+
+// Buttons to start drawing new boxes
+setLabelBtn.onclick = () => {
+  isDrawing = "label";
+};
+
+setInvoiceBtn.onclick = () => {
+  isDrawing = "invoice";
+};
+
+// ===== Drag + Resize logic on box divs =====
+function attachDragResize(boxEl, boxType) {
+  boxEl.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const box = boxType === "label" ? labelBox : invoiceBox;
+    if (!box) return;
+
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const handle = e.target.closest(".resize-handle");
+    activeBoxType = boxType;
+
+    if (handle) {
+      // Resize mode
+      isResizingBox = true;
+      resizeDir = handle.getAttribute("data-dir"); // tl, tr, bl, br
+    } else {
+      // Drag mode
+      isDraggingBox = true;
+      dragOffsetX = mouseX - box.x;
+      dragOffsetY = mouseY - box.y;
+    }
+  });
+}
+
+// Global mousemove for dragging/resizing
+window.addEventListener("mousemove", (e) => {
+  if (!isDraggingBox && !isResizingBox) return;
+  if (!activeBoxType) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const box = activeBoxType === "label" ? labelBox : invoiceBox;
+  const boxEl = activeBoxType === "label" ? labelBoxEl : invoiceBoxEl;
+  if (!box) return;
+
+  const minSize = 20;
+
+  if (isDraggingBox) {
+    let newX = mouseX - dragOffsetX;
+    let newY = mouseY - dragOffsetY;
+
+    // Clamp to canvas
+    newX = Math.max(0, Math.min(newX, canvas.width - box.width));
+    newY = Math.max(0, Math.min(newY, canvas.height - box.height));
+
+    box.x = newX;
+    box.y = newY;
+    updateBox(boxEl, box);
+  }
+
+  if (isResizingBox) {
+    let { x, y, width, height } = box;
+
+    if (resizeDir === "br") {
+      width = mouseX - x;
+      height = mouseY - y;
+    } else if (resizeDir === "bl") {
+      width = (x + width) - mouseX;
+      x = mouseX;
+      height = mouseY - y;
+    } else if (resizeDir === "tr") {
+      width = mouseX - x;
+      height = (y + height) - mouseY;
+      y = mouseY;
+    } else if (resizeDir === "tl") {
+      width = (x + width) - mouseX;
+      x = mouseX;
+      height = (y + height) - mouseY;
+      y = mouseY;
+    }
+
+    width = Math.max(minSize, width);
+    height = Math.max(minSize, height);
+
+    x = Math.max(0, Math.min(x, canvas.width - width));
+    y = Math.max(0, Math.min(y, canvas.height - height));
+
+    box.x = x;
+    box.y = y;
+    box.width = width;
+    box.height = height;
+
+    updateBox(boxEl, box);
   }
 
   updateProcessButtonState();
 });
 
-canvas.addEventListener("mouseup", () => {
-  isDragging = null;
+// Reset flags on mouseup
+window.addEventListener("mouseup", () => {
+  isDraggingBox = false;
+  isResizingBox = false;
+  resizeDir = null;
 });
 
-setLabelBtn.onclick = () => (isDragging = "label");
-setInvoiceBtn.onclick = () => (isDragging = "invoice");
+// Attach interactions
+attachDragResize(labelBoxEl, "label");
+attachDragResize(invoiceBoxEl, "invoice");
 
-// ===== Render first page (high-res, same visual size) =====
+// ===== Render first page (high-res but same visual size) =====
 async function renderFirstPage() {
   if (!pdfDoc) return;
   pageNum = 1;
@@ -210,7 +333,7 @@ skuDbForm.addEventListener("submit", async (e) => {
   }
 });
 
-// ===== Process PDF (crop + mapping) =====
+// ===== Process PDF (crop + mapping + picklist) =====
 processBtn.addEventListener("click", async () => {
   if (!labelBox || !invoiceBox || !pdfFilename) {
     alert("Please set label & invoice crop and upload files first.");
@@ -239,12 +362,23 @@ processBtn.addEventListener("click", async () => {
       return;
     }
 
+    // Download cropped labels+invoices PDF
     const link = document.createElement("a");
     link.href = data.outputUrl;
     link.download = "cropped_output.pdf";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+
+    // Download picklist PDF
+    if (data.picklistUrl) {
+      const pickLink = document.createElement("a");
+      pickLink.href = data.picklistUrl;
+      pickLink.download = "picklist.pdf";
+      document.body.appendChild(pickLink);
+      pickLink.click();
+      document.body.removeChild(pickLink);
+    }
   } catch (err) {
     console.error(err);
     alert("Error while calling crop API.");
