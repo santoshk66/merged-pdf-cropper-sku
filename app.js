@@ -298,7 +298,7 @@ app.post("/crop", async (req, res) => {
 
       if (labelText) {
         const fontSize = 6;
-        const textX = 10;
+        const textX = 5;
         const textY = 5; // bottom-left-ish
 
         labelPage.drawText(labelText, {
