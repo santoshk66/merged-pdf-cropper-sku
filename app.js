@@ -28,7 +28,7 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 const upload = multer({ dest: UPLOAD_DIR });
 
 app.use(cors());
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 // Serve frontend & outputs
 app.use(express.static("public"));
@@ -38,7 +38,7 @@ app.use("/outputs", express.static(OUTPUT_DIR));
  * POST /upload
  * Upload per-run files:
  *  - pdf        (label PDF)
- *  - skuMapping (full Flipkart CSV: Order Id, SKU, etc)
+ *  - skuMapping (full Flipkart CSV: Order Id, SKU, Quantity, Product...)
  */
 app.post(
   "/upload",
@@ -55,6 +55,7 @@ app.post(
         return res.status(400).json({ error: "Missing PDF file" });
       }
 
+      // Ensure file is in our uploads dir with known name
       const pdfFinalName = pdfFile.filename;
       const pdfFinalPath = path.join(UPLOAD_DIR, pdfFinalName);
       await fsPromises.writeFile(
@@ -89,6 +90,7 @@ app.post(
  * POST /upload-sku-db
  * Upload SKU DB CSV (old sku,new sku) and store in Firestore
  * CSV field name: skuDb
+ * Collection: skuCorrections
  */
 app.post(
   "/upload-sku-db",
@@ -101,7 +103,6 @@ app.post(
       }
 
       const buffer = await fsPromises.readFile(file.path);
-
       const skuMap = buildSkuCorrectionMapFromCSV(buffer);
       const entries = Object.entries(skuMap);
 
@@ -111,26 +112,24 @@ app.post(
           .json({ error: "No valid SKU mappings found in CSV" });
       }
 
-      // Write to Firestore: collection "skuCorrections"
       const batch = db.batch();
       const collectionRef = db.collection("skuCorrections");
 
       for (const [oldSku, newSku] of entries) {
         // Firestore doc IDs cannot contain '/'
         const safeDocId = oldSku.replace(/\//g, "_");
-      
+
         const docRef = collectionRef.doc(safeDocId);
         batch.set(
           docRef,
           {
-            oldSku,     // original value with '/'
+            oldSku, // original with '/'
             newSku,
-            safeDocId,  // optional, for debugging
+            safeDocId,
           },
           { merge: true }
         );
       }
-
 
       await batch.commit();
 
@@ -148,7 +147,7 @@ app.post(
 
 /**
  * POST /crop
- * JSON:
+ * JSON body:
  *  {
  *    pdfFilename,
  *    mappingFilename,
@@ -223,6 +222,9 @@ app.post("/crop", async (req, res) => {
       }
     });
 
+    // 3) Picklist aggregation: finalSku -> { sku, qty, product }
+    const picklistMap = {};
+
     const pageCount = inputPdf.getPageCount();
 
     for (let i = 0; i < pageCount; i++) {
@@ -240,38 +242,43 @@ app.post("/crop", async (req, res) => {
         y: -(height - label.y - label.height),
       });
 
-      // Get row via Order Id
+      // Row via Order Id
       const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
 
-      // Get original SKU from CSV row
+      // --- SKU & quantity for this page/order ---
       const rawSku = (row["SKU"] || "").toString().trim();
-      
-      // Apply correction mapping if available
+
       let finalSku = rawSku;
       if (rawSku && skuCorrectionMap[rawSku]) {
         finalSku = skuCorrectionMap[rawSku];
       }
-      
-      // Read quantity from CSV (supports both "Quantity" and "Qty")
+
       const qtyRaw =
         (row["Quantity"] ||
           row["Qty"] ||
           row["quantity"] ||
           row["qty"] ||
           "").toString().trim();
-      
-      // Build label text: "k8 microphone (10)" or just "k8 microphone"
+
+      // Try to get product name
+      const productName =
+        (row["Product"] ||
+          row["Product Name"] ||
+          row["Description"] ||
+          "").toString().trim();
+
+      // Label text: "k8 microphone (10)"
       let labelText = finalSku;
       if (finalSku && qtyRaw) {
         labelText = `${finalSku} (${qtyRaw})`;
       }
-      
+
       if (labelText) {
-        const fontSize = 6;   // keep your existing font size
-        const textX = 10;     // same position as before
-        const textY = 5;
-      
+        const fontSize = 6;
+        const textX = 10;
+        const textY = 5; // bottom-left-ish
+
         labelPage.drawText(labelText, {
           x: textX,
           y: textY,
@@ -281,6 +288,18 @@ app.post("/crop", async (req, res) => {
         });
       }
 
+      // --- Aggregate into picklist map ---
+      const qtyNum = parseInt(qtyRaw || "0", 10) || 0;
+      if (finalSku && qtyNum > 0) {
+        if (!picklistMap[finalSku]) {
+          picklistMap[finalSku] = {
+            sku: finalSku,
+            qty: 0,
+            product: productName || "",
+          };
+        }
+        picklistMap[finalSku].qty += qtyNum;
+      }
 
       // ===== INVOICE CROP =====
       invoicePage.drawPage(embedded, {
@@ -289,12 +308,140 @@ app.post("/crop", async (req, res) => {
       });
     }
 
+    // -------- Save cropped PDF (labels+invoices) --------
     const pdfBytes = await outPdf.save();
     const outputName = `output-${pdfFilename}.pdf`;
     const outputPath = path.join(OUTPUT_DIR, outputName);
     await fsPromises.writeFile(outputPath, pdfBytes);
 
-    res.json({ outputUrl: `/outputs/${outputName}` });
+    // -------- Build Picklist PDF --------
+    const picklistDoc = await PDFDocument.create();
+    const pickFont = await picklistDoc.embedFont(StandardFonts.Helvetica);
+
+    // A4 size in points
+    const pageWidth = 595.28;
+    const pageHeight = 841.89;
+    let pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
+
+    let y = pageHeight - 50;
+    const marginX = 40;
+    const lineHeight = 18;
+
+    // Title
+    pickPage.drawText("Picklist", {
+      x: marginX,
+      y,
+      size: 16,
+      font: pickFont,
+      color: rgb(0, 0, 0),
+    });
+    y -= lineHeight * 2;
+
+    // Headers
+    pickPage.drawText("S.No", { x: marginX, y, size: 10, font: pickFont });
+    pickPage.drawText("SKU", {
+      x: marginX + 50,
+      y,
+      size: 10,
+      font: pickFont,
+    });
+    pickPage.drawText("Qty", {
+      x: marginX + 300,
+      y,
+      size: 10,
+      font: pickFont,
+    });
+    pickPage.drawText("Product", {
+      x: marginX + 350,
+      y,
+      size: 10,
+      font: pickFont,
+    });
+    y -= lineHeight;
+
+    const pickItems = Object.values(picklistMap).sort((a, b) =>
+      a.sku.localeCompare(b.sku)
+    );
+
+    let index = 1;
+    for (const item of pickItems) {
+      if (y < 60) {
+        // new page
+        pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - 50;
+
+        // re-draw headers
+        pickPage.drawText("S.No", {
+          x: marginX,
+          y,
+          size: 10,
+          font: pickFont,
+        });
+        pickPage.drawText("SKU", {
+          x: marginX + 50,
+          y,
+          size: 10,
+          font: pickFont,
+        });
+        pickPage.drawText("Qty", {
+          x: marginX + 300,
+          y,
+          size: 10,
+          font: pickFont,
+        });
+        pickPage.drawText("Product", {
+          x: marginX + 350,
+          y,
+          size: 10,
+          font: pickFont,
+        });
+        y -= lineHeight;
+      }
+
+      const productShort =
+        item.product && item.product.length > 40
+          ? item.product.slice(0, 40) + "..."
+          : item.product || "";
+
+      pickPage.drawText(String(index), {
+        x: marginX,
+        y,
+        size: 10,
+        font: pickFont,
+      });
+      pickPage.drawText(item.sku, {
+        x: marginX + 50,
+        y,
+        size: 10,
+        font: pickFont,
+      });
+      pickPage.drawText(String(item.qty), {
+        x: marginX + 300,
+        y,
+        size: 10,
+        font: pickFont,
+      });
+      pickPage.drawText(productShort, {
+        x: marginX + 350,
+        y,
+        size: 10,
+        font: pickFont,
+      });
+
+      y -= lineHeight;
+      index++;
+    }
+
+    const pickBytes = await picklistDoc.save();
+    const pickName = `picklist-${pdfFilename}.pdf`;
+    const pickPath = path.join(OUTPUT_DIR, pickName);
+    await fsPromises.writeFile(pickPath, pickBytes);
+
+    // -------- Response: both PDFs --------
+    res.json({
+      outputUrl: `/outputs/${outputName}`,
+      picklistUrl: `/outputs/${pickName}`,
+    });
   } catch (err) {
     console.error("Crop error", err);
     res
