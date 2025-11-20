@@ -172,8 +172,8 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *  {
  *    pdfFilename,
  *    mappingFilename,
- *    labelBox: { x, y, width, height },   // required
- *    invoiceBox: { x, y, width, height }, // OPTIONAL
+ *    labelBox: { x, y, width, height },
+ *    invoiceBox: { x, y, width, height },
  *    orderIdsByPage: [ "OD...", "OD...", ... ]
  *  }
  */
@@ -190,8 +190,8 @@ app.post("/crop", async (req, res) => {
     if (!pdfFilename) {
       return res.status(400).json({ error: "Missing pdfFilename" });
     }
-    if (!labelBox) {
-      return res.status(400).json({ error: "Missing labelBox (label crop)" });
+    if (!labelBox || !invoiceBox) {
+      return res.status(400).json({ error: "Missing crop boxes" });
     }
 
     const normalizeBox = (box) => ({
@@ -202,34 +202,21 @@ app.post("/crop", async (req, res) => {
     });
 
     const label = normalizeBox(labelBox);
-    let invoice = null;
+    const invoice = normalizeBox(invoiceBox);
 
     if (
       !label.width ||
       !label.height ||
+      !invoice.width ||
+      !invoice.height ||
       label.width <= 0 ||
-      label.height <= 0
+      label.height <= 0 ||
+      invoice.width <= 0 ||
+      invoice.height <= 0
     ) {
       return res.status(400).json({
-        error: "Invalid label crop dimensions (width/height must be > 0)",
+        error: "Invalid crop dimensions (width/height must be > 0)",
       });
-    }
-
-    // Invoice box is OPTIONAL
-    if (invoiceBox) {
-      const tmp = normalizeBox(invoiceBox);
-      if (
-        !tmp.width ||
-        !tmp.height ||
-        tmp.width <= 0 ||
-        tmp.height <= 0
-      ) {
-        return res.status(400).json({
-          error:
-            "Invalid invoice crop dimensions (width/height must be > 0) if invoiceBox is provided",
-        });
-      }
-      invoice = tmp;
     }
 
     // Load input PDF
@@ -266,8 +253,8 @@ app.post("/crop", async (req, res) => {
       const [page] = await outPdf.copyPages(inputPdf, [i]);
       const { height } = page.getSize();
 
-      // Always create LABEL page
       const labelPage = outPdf.addPage([label.width, label.height]);
+      const invoicePage = outPdf.addPage([invoice.width, invoice.height]);
 
       const embedded = await outPdf.embedPage(page);
 
@@ -336,17 +323,14 @@ app.post("/crop", async (req, res) => {
         picklistMap[finalSku].qty += qtyNum;
       }
 
-      // ===== INVOICE CROP (OPTIONAL) =====
-      if (invoice) {
-        const invoicePage = outPdf.addPage([invoice.width, invoice.height]);
-        invoicePage.drawPage(embedded, {
-          x: -invoice.x,
-          y: -(height - invoice.y - invoice.height),
-        });
-      }
+      // ===== INVOICE CROP =====
+      invoicePage.drawPage(embedded, {
+        x: -invoice.x,
+        y: -(height - invoice.y - invoice.height),
+      });
     }
 
-    // -------- Save cropped PDF (labels [+ invoices if any]) --------
+    // -------- Save cropped PDF (labels+invoices) --------
     const pdfBytes = await outPdf.save();
     const outputName = `output-${pdfFilename}.pdf`;
     const outputPath = path.join(OUTPUT_DIR, outputName);
@@ -364,7 +348,7 @@ app.post("/crop", async (req, res) => {
     let y = pageHeight - 50;
     const marginX = 40;
     const lineHeight = 14;
-    const fontSize = 8; // make smaller if you want, e.g. 8
+    const fontSize = 8;
 
     // Column X positions
     const colSnoX = marginX;
