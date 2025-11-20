@@ -1,4 +1,4 @@
-// app.js
+// app.js 
 import express from "express";
 import multer from "multer";
 import cors from "cors";
@@ -174,9 +174,12 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *    mappingFilename,
  *    labelBox: { x, y, width, height },
  *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD...", ... ],
- *    removeDuplicates: true | false
+ *    orderIdsByPage: [ "OD...", "OD...", ... ]
  *  }
+ *
+ * New behavior:
+ *  - Still uses Order Id -> CSV -> SKU/qty mapping
+ *  - But output labels are grouped by SKU so same SKUs stay together
  */
 app.post("/crop", async (req, res) => {
   try {
@@ -186,7 +189,6 @@ app.post("/crop", async (req, res) => {
       labelBox,
       invoiceBox,
       orderIdsByPage = [],
-      removeDuplicates = false, // NEW
     } = req.body;
 
     if (!pdfFilename) {
@@ -250,19 +252,71 @@ app.post("/crop", async (req, res) => {
     const picklistMap = {};
 
     const pageCount = inputPdf.getPageCount();
-    const seenOrderIds = new Set(); // NEW
+
+    // ---- NEW: Prepare jobs array first, don't draw yet ----
+    const jobs = [];
 
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i];
+      const row = orderId ? orderMap[orderId] || {} : {};
 
-      // NEW: skip duplicate orders if user chose to remove
-      if (removeDuplicates && orderId && seenOrderIds.has(orderId)) {
-        console.log("Skipping duplicate order:", orderId, "on page", i + 1);
-        continue;
+      const rawSku = (row["SKU"] || "").toString().trim();
+
+      let finalSku = rawSku;
+      if (rawSku && skuCorrectionMap[rawSku]) {
+        finalSku = skuCorrectionMap[rawSku];
       }
-      if (orderId) {
-        seenOrderIds.add(orderId);
+
+      const qtyRaw =
+        (row["Quantity"] ||
+          row["Qty"] ||
+          row["quantity"] ||
+          row["qty"] ||
+          "").toString().trim();
+
+      const productName =
+        (row["Product"] ||
+          row["Product Name"] ||
+          row["Description"] ||
+          "").toString().trim();
+
+      const qtyNum = parseInt(qtyRaw || "0", 10) || 0;
+      if (finalSku && qtyNum > 0) {
+        if (!picklistMap[finalSku]) {
+          picklistMap[finalSku] = {
+            sku: finalSku,
+            qty: 0,
+            product: productName || "",
+          };
+        }
+        picklistMap[finalSku].qty += qtyNum;
       }
+
+      jobs.push({
+        pageIndex: i,
+        orderId,
+        rawSku,
+        finalSku,
+        qtyRaw,
+        productName,
+      });
+    }
+
+    // ---- NEW: Sort jobs by SKU so labels are in sequence ----
+    const withSku = jobs.filter((j) => j.finalSku);
+    const withoutSku = jobs.filter((j) => !j.finalSku);
+
+    withSku.sort((a, b) => {
+      const cmp = a.finalSku.localeCompare(b.finalSku);
+      if (cmp !== 0) return cmp;
+      return a.pageIndex - b.pageIndex; // stable within same SKU
+    });
+
+    const sortedJobs = [...withSku, ...withoutSku];
+
+    // ---- Now actually draw pages in sorted order ----
+    for (const job of sortedJobs) {
+      const i = job.pageIndex;
 
       const [page] = await outPdf.copyPages(inputPdf, [i]);
       const { height } = page.getSize();
@@ -278,35 +332,10 @@ app.post("/crop", async (req, res) => {
         y: -(height - label.y - label.height),
       });
 
-      // Get row via Order Id
-      const row = orderId ? orderMap[orderId] || {} : {};
-
-      // --- SKU & quantity for this page/order ---
-      const rawSku = (row["SKU"] || "").toString().trim();
-
-      let finalSku = rawSku;
-      if (rawSku && skuCorrectionMap[rawSku]) {
-        finalSku = skuCorrectionMap[rawSku];
-      }
-
-      const qtyRaw =
-        (row["Quantity"] ||
-          row["Qty"] ||
-          row["quantity"] ||
-          row["qty"] ||
-          "").toString().trim();
-
-      // Try to get product name
-      const productName =
-        (row["Product"] ||
-          row["Product Name"] ||
-          row["Description"] ||
-          "").toString().trim();
-
-      // Label text: "k8 microphone (10)" or just "k8 microphone"
-      let labelText = finalSku;
-      if (finalSku && qtyRaw) {
-        labelText = `${finalSku} (${qtyRaw})`;
+      // Label text from job (finalSku + qtyRaw)
+      let labelText = job.finalSku;
+      if (job.finalSku && job.qtyRaw) {
+        labelText = `${job.finalSku} (${job.qtyRaw})`;
       }
 
       if (labelText) {
@@ -321,19 +350,6 @@ app.post("/crop", async (req, res) => {
           size: fontSize,
           color: rgb(0, 0, 0),
         });
-      }
-
-      // --- Aggregate into picklist map ---
-      const qtyNum = parseInt(qtyRaw || "0", 10) || 0;
-      if (finalSku && qtyNum > 0) {
-        if (!picklistMap[finalSku]) {
-          picklistMap[finalSku] = {
-            sku: finalSku,
-            qty: 0,
-            product: productName || "",
-          };
-        }
-        picklistMap[finalSku].qty += qtyNum;
       }
 
       // ===== INVOICE CROP =====
