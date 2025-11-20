@@ -174,7 +174,8 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *    mappingFilename,
  *    labelBox: { x, y, width, height },
  *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD...", ... ]
+ *    orderIdsByPage: [ "OD...", "OD...", ... ],
+ *    removeDuplicates: true | false
  *  }
  */
 app.post("/crop", async (req, res) => {
@@ -185,6 +186,7 @@ app.post("/crop", async (req, res) => {
       labelBox,
       invoiceBox,
       orderIdsByPage = [],
+      removeDuplicates = false, // NEW
     } = req.body;
 
     if (!pdfFilename) {
@@ -248,8 +250,20 @@ app.post("/crop", async (req, res) => {
     const picklistMap = {};
 
     const pageCount = inputPdf.getPageCount();
+    const seenOrderIds = new Set(); // NEW
 
     for (let i = 0; i < pageCount; i++) {
+      const orderId = orderIdsByPage[i];
+
+      // NEW: skip duplicate orders if user chose to remove
+      if (removeDuplicates && orderId && seenOrderIds.has(orderId)) {
+        console.log("Skipping duplicate order:", orderId, "on page", i + 1);
+        continue;
+      }
+      if (orderId) {
+        seenOrderIds.add(orderId);
+      }
+
       const [page] = await outPdf.copyPages(inputPdf, [i]);
       const { height } = page.getSize();
 
@@ -265,7 +279,6 @@ app.post("/crop", async (req, res) => {
       });
 
       // Get row via Order Id
-      const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
 
       // --- SKU & quantity for this page/order ---
