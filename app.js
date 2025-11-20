@@ -347,8 +347,8 @@ app.post("/crop", async (req, res) => {
 
     let y = pageHeight - 50;
     const marginX = 40;
-    const lineHeight = 16;
-    const fontSize = 10;
+    const lineHeight = 14;
+    const fontSize = 8;
 
     // Column X positions
     const colSnoX = marginX;
