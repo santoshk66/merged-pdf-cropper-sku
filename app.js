@@ -14,7 +14,7 @@ import { db } from "./firebaseAdmin.js";
 
 const app = express();
 
-// Directories
+// ----------------- Directories -----------------
 const UPLOAD_DIR = "uploads";
 const OUTPUT_DIR = "outputs";
 
@@ -34,9 +34,32 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.static("public"));
 app.use("/outputs", express.static(OUTPUT_DIR));
 
+// ----------------- Helper: wrap product text for picklist -----------------
+function wrapTextIntoLines(text, maxWidth, font, fontSize) {
+  if (!text) return [""];
+  const words = text.split(/\s+/);
+  const lines = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const testLine = currentLine ? currentLine + " " + word : word;
+    const width = font.widthOfTextAtSize(testLine, fontSize);
+    if (width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
+// ----------------- /upload (PDF + full CSV) -----------------
 /**
  * POST /upload
- * Upload per-run files:
+ * Fields:
  *  - pdf        (label PDF)
  *  - skuMapping (full Flipkart CSV: Order Id, SKU, Quantity, Product...)
  */
@@ -55,7 +78,7 @@ app.post(
         return res.status(400).json({ error: "Missing PDF file" });
       }
 
-      // Ensure file is in our uploads dir with known name
+      // Save PDF into uploads dir (by multer filename)
       const pdfFinalName = pdfFile.filename;
       const pdfFinalPath = path.join(UPLOAD_DIR, pdfFinalName);
       await fsPromises.writeFile(
@@ -86,65 +109,63 @@ app.post(
   }
 );
 
+// ----------------- /upload-sku-db (SKU DB CSV -> Firestore) -----------------
 /**
  * POST /upload-sku-db
- * Upload SKU DB CSV (old sku,new sku) and store in Firestore
- * CSV field name: skuDb
- * Collection: skuCorrections
+ * Field:
+ *  - skuDb (CSV with columns: old sku,new sku)
+ * Collection in Firestore: skuCorrections
  */
-app.post(
-  "/upload-sku-db",
-  upload.single("skuDb"),
-  async (req, res) => {
-    try {
-      const file = req.file;
-      if (!file) {
-        return res.status(400).json({ error: "Missing skuDb CSV file" });
-      }
-
-      const buffer = await fsPromises.readFile(file.path);
-      const skuMap = buildSkuCorrectionMapFromCSV(buffer);
-      const entries = Object.entries(skuMap);
-
-      if (entries.length === 0) {
-        return res
-          .status(400)
-          .json({ error: "No valid SKU mappings found in CSV" });
-      }
-
-      const batch = db.batch();
-      const collectionRef = db.collection("skuCorrections");
-
-      for (const [oldSku, newSku] of entries) {
-        // Firestore doc IDs cannot contain '/'
-        const safeDocId = oldSku.replace(/\//g, "_");
-
-        const docRef = collectionRef.doc(safeDocId);
-        batch.set(
-          docRef,
-          {
-            oldSku, // original with '/'
-            newSku,
-            safeDocId,
-          },
-          { merge: true }
-        );
-      }
-
-      await batch.commit();
-
-      res.json({
-        message: `Uploaded ${entries.length} SKU mappings to Firestore`,
-      });
-    } catch (err) {
-      console.error("SKU DB upload error", err);
-      res.status(500).json({
-        error: `Failed to upload SKU DB: ${err.message || "Unknown error"}`,
-      });
+app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: "Missing skuDb CSV file" });
     }
-  }
-);
 
+    const buffer = await fsPromises.readFile(file.path);
+    const skuMap = buildSkuCorrectionMapFromCSV(buffer);
+    const entries = Object.entries(skuMap);
+
+    if (entries.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "No valid SKU mappings found in CSV" });
+    }
+
+    const batch = db.batch();
+    const collectionRef = db.collection("skuCorrections");
+
+    for (const [oldSku, newSku] of entries) {
+      // Firestore doc IDs cannot contain '/'
+      const safeDocId = oldSku.replace(/\//g, "_");
+
+      const docRef = collectionRef.doc(safeDocId);
+      batch.set(
+        docRef,
+        {
+          oldSku, // original with '/'
+          newSku,
+          safeDocId,
+        },
+        { merge: true }
+      );
+    }
+
+    await batch.commit();
+
+    res.json({
+      message: `Uploaded ${entries.length} SKU mappings to Firestore`,
+    });
+  } catch (err) {
+    console.error("SKU DB upload error", err);
+    res.status(500).json({
+      error: `Failed to upload SKU DB: ${err.message || "Unknown error"}`,
+    });
+  }
+});
+
+// ----------------- /crop (main processing) -----------------
 /**
  * POST /crop
  * JSON body:
@@ -153,7 +174,7 @@ app.post(
  *    mappingFilename,
  *    labelBox: { x, y, width, height },
  *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD..." ... ]
+ *    orderIdsByPage: [ "OD...", "OD...", ... ]
  *  }
  */
 app.post("/crop", async (req, res) => {
@@ -198,13 +219,14 @@ app.post("/crop", async (req, res) => {
       });
     }
 
+    // Load input PDF
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
     const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
     const outPdf = await PDFDocument.create();
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
-    // 1) Order Id → row map from full Flipkart CSV
+    // 1) Order Id → CSV row map
     let orderMap = {};
     if (mappingFilename) {
       const csvPath = path.join(UPLOAD_DIR, mappingFilename);
@@ -242,7 +264,7 @@ app.post("/crop", async (req, res) => {
         y: -(height - label.y - label.height),
       });
 
-      // Row via Order Id
+      // Get row via Order Id
       const orderId = orderIdsByPage[i];
       const row = orderId ? orderMap[orderId] || {} : {};
 
@@ -268,7 +290,7 @@ app.post("/crop", async (req, res) => {
           row["Description"] ||
           "").toString().trim();
 
-      // Label text: "k8 microphone (10)"
+      // Label text: "k8 microphone (10)" or just "k8 microphone"
       let labelText = finalSku;
       if (finalSku && qtyRaw) {
         labelText = `${finalSku} (${qtyRaw})`;
@@ -314,7 +336,7 @@ app.post("/crop", async (req, res) => {
     const outputPath = path.join(OUTPUT_DIR, outputName);
     await fsPromises.writeFile(outputPath, pdfBytes);
 
-    // -------- Build Picklist PDF --------
+    // -------- Build Picklist PDF (with wrapped product names) --------
     const picklistDoc = await PDFDocument.create();
     const pickFont = await picklistDoc.embedFont(StandardFonts.Helvetica);
 
@@ -325,7 +347,15 @@ app.post("/crop", async (req, res) => {
 
     let y = pageHeight - 50;
     const marginX = 40;
-    const lineHeight = 18;
+    const lineHeight = 16;
+    const fontSize = 10;
+
+    // Column X positions
+    const colSnoX = marginX;
+    const colSkuX = marginX + 40;
+    const colQtyX = marginX + 200;
+    const colProductX = marginX + 240;
+    const maxProductWidth = pageWidth - colProductX - 40;
 
     // Title
     pickPage.drawText("Picklist", {
@@ -337,26 +367,20 @@ app.post("/crop", async (req, res) => {
     });
     y -= lineHeight * 2;
 
-    // Headers
-    pickPage.drawText("S.No", { x: marginX, y, size: 10, font: pickFont });
-    pickPage.drawText("SKU", {
-      x: marginX + 50,
-      y,
-      size: 10,
-      font: pickFont,
-    });
-    pickPage.drawText("Qty", {
-      x: marginX + 300,
-      y,
-      size: 10,
-      font: pickFont,
-    });
-    pickPage.drawText("Product", {
-      x: marginX + 350,
-      y,
-      size: 10,
-      font: pickFont,
-    });
+    function drawHeaders(page) {
+      page.drawText("S.No", { x: colSnoX, y, size: fontSize, font: pickFont });
+      page.drawText("SKU", { x: colSkuX, y, size: fontSize, font: pickFont });
+      page.drawText("Qty", { x: colQtyX, y, size: fontSize, font: pickFont });
+      page.drawText("Product", {
+        x: colProductX,
+        y,
+        size: fontSize,
+        font: pickFont,
+      });
+    }
+
+    // Headers – first page
+    drawHeaders(pickPage);
     y -= lineHeight;
 
     const pickItems = Object.values(picklistMap).sort((a, b) =>
@@ -365,68 +389,70 @@ app.post("/crop", async (req, res) => {
 
     let index = 1;
     for (const item of pickItems) {
-      if (y < 60) {
-        // new page
+      const productText = item.product || "";
+
+      // Wrap product text into multiple lines
+      const productLines = wrapTextIntoLines(
+        productText,
+        maxProductWidth,
+        pickFont,
+        fontSize
+      );
+
+      const neededHeight = productLines.length * lineHeight;
+
+      // If not enough space, new page
+      if (y - neededHeight < 40) {
         pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
         y = pageHeight - 50;
-
-        // re-draw headers
-        pickPage.drawText("S.No", {
-          x: marginX,
-          y,
-          size: 10,
-          font: pickFont,
-        });
-        pickPage.drawText("SKU", {
-          x: marginX + 50,
-          y,
-          size: 10,
-          font: pickFont,
-        });
-        pickPage.drawText("Qty", {
-          x: marginX + 300,
-          y,
-          size: 10,
-          font: pickFont,
-        });
-        pickPage.drawText("Product", {
-          x: marginX + 350,
-          y,
-          size: 10,
-          font: pickFont,
-        });
+        drawHeaders(pickPage);
         y -= lineHeight;
       }
 
-      const productShort =
-        item.product && item.product.length > 40
-          ? item.product.slice(0, 40) + "..."
-          : item.product || "";
-
+      // First line: S.No, SKU, Qty, first product line
       pickPage.drawText(String(index), {
-        x: marginX,
+        x: colSnoX,
         y,
-        size: 10,
+        size: fontSize,
         font: pickFont,
       });
       pickPage.drawText(item.sku, {
-        x: marginX + 50,
+        x: colSkuX,
         y,
-        size: 10,
+        size: fontSize,
         font: pickFont,
       });
       pickPage.drawText(String(item.qty), {
-        x: marginX + 300,
+        x: colQtyX,
         y,
-        size: 10,
+        size: fontSize,
         font: pickFont,
       });
-      pickPage.drawText(productShort, {
-        x: marginX + 350,
+      pickPage.drawText(productLines[0] || "", {
+        x: colProductX,
         y,
-        size: 10,
+        size: fontSize,
         font: pickFont,
       });
+
+      // Additional product lines (only product column)
+      for (let li = 1; li < productLines.length; li++) {
+        y -= lineHeight;
+
+        if (y < 40) {
+          pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
+          y = pageHeight - 50;
+          drawHeaders(pickPage);
+          y -= lineHeight;
+        }
+
+        pickPage.drawText(productLines[li], {
+          x: colProductX,
+          y,
+          size: fontSize,
+          font: pickFont,
+        });
+      }
 
       y -= lineHeight;
       index++;
@@ -450,6 +476,7 @@ app.post("/crop", async (req, res) => {
   }
 });
 
+// ----------------- Start server -----------------
 const port = process.env.PORT || 3000;
 app.listen(port, "0.0.0.0", () =>
   console.log(`Server running on port ${port}`)
