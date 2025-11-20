@@ -68,22 +68,21 @@
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-    background: #fff;
   }
 
   .selector {
     position: absolute;
-    border: 2px dashed #3182ce;
+    pointer-events: none;
+    transition: border-color 0.3s ease;
     background: rgba(0, 0, 0, 0.03);
-    display: none;
   }
 
   .label-selector {
-    border-color: #3182ce;
+    border: 2px dashed #3182ce;
   }
 
   .invoice-selector {
-    border-color: #e53e3e;
+    border: 2px dashed #e53e3e;
   }
 
   .label-selector::before,
@@ -96,26 +95,8 @@
     color: #ffffff;
     padding: 3px 6px;
     font-size: 0.75rem;
-    font-weight: 500;
     border-radius: 4px;
   }
-
-  /* Resize handles */
-  .resize-handle {
-    width: 10px;
-    height: 10px;
-    background: #3182ce;
-    border-radius: 50%;
-    position: absolute;
-  }
-
-  .label-selector .resize-handle { background: #3182ce; }
-  .invoice-selector .resize-handle { background: #e53e3e; }
-
-  .resize-handle[data-dir="tl"] { top: -5px; left: -5px; cursor: nw-resize; }
-  .resize-handle[data-dir="tr"] { top: -5px; right: -5px; cursor: ne-resize; }
-  .resize-handle[data-dir="bl"] { bottom: -5px; left: -5px; cursor: sw-resize; }
-  .resize-handle[data-dir="br"] { bottom: -5px; right: -5px; cursor: se-resize; }
 
   .buttons-row {
     display: flex;
@@ -165,27 +146,13 @@
   <h2>Preview & Crop</h2>
   <div id="preview-container">
     <canvas id="pdfCanvas"></canvas>
-
-    <!-- Label crop box -->
-    <div id="labelBox" class="selector label-selector" data-type="Label">
-      <div class="resize-handle" data-dir="tl"></div>
-      <div class="resize-handle" data-dir="tr"></div>
-      <div class="resize-handle" data-dir="bl"></div>
-      <div class="resize-handle" data-dir="br"></div>
-    </div>
-
-    <!-- Invoice crop box -->
-    <div id="invoiceBox" class="selector invoice-selector" data-type="Invoice">
-      <div class="resize-handle" data-dir="tl"></div>
-      <div class="resize-handle" data-dir="tr"></div>
-      <div class="resize-handle" data-dir="bl"></div>
-      <div class="resize-handle" data-dir="br"></div>
-    </div>
+    <div id="labelBox" class="selector label-selector" data-type="Label"></div>
+    <div id="invoiceBox" class="selector invoice-selector" data-type="Invoice"></div>
   </div>
 
   <div class="buttons-row">
-    <button id="setLabel" type="button">Set Label Crop (draw)</button>
-    <button id="setInvoice" type="button">Set Invoice Crop (draw)</button>
+    <button id="setLabel" type="button">Set Label Crop</button>
+    <button id="setInvoice" type="button">Set Invoice Crop</button>
     <button id="processPDF" type="button" disabled>Process PDF</button>
   </div>
 
