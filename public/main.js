@@ -10,6 +10,7 @@ let startX, startY;
 let pdfFilename = null;
 let mappingFilename = null;
 let orderIdsByPage = [];
+let removeDuplicates = false; // NEW FLAG
 
 const canvas = document.getElementById("pdfCanvas");
 const ctx = canvas.getContext("2d");
@@ -235,15 +236,40 @@ async function extractOrderIdsFromPdf(pdfFile) {
     const textContent = await page.getTextContent();
     const fullText = textContent.items.map((it) => it.str).join(" ");
 
-    const match = fullText.match(/Order Id[:\s]*?(OD\d+)/i);
+    // UPDATED: detect ODxxxx... even without "Order Id"
+    const match = fullText.match(/OD\d{9,}/i);
     if (match) {
-      orderIdsByPage.push(match[1]);
+      orderIdsByPage.push(match[0]);
     } else {
       orderIdsByPage.push(null);
     }
   }
 
   console.log("Detected orderIdsByPage:", orderIdsByPage);
+
+  // === NEW: check duplicates
+  const seen = new Set();
+  const dups = new Set();
+
+  for (const id of orderIdsByPage) {
+    if (!id) continue;
+    if (seen.has(id)) dups.add(id);
+    else seen.add(id);
+  }
+
+  removeDuplicates = false;
+
+  if (dups.size > 0) {
+    const list = Array.from(dups).join(", ");
+    const keep = confirm(
+      `Duplicate Order Ids detected in this PDF:\n${list}\n\n` +
+        `Press OK to KEEP duplicates.\n` +
+        `Press Cancel to REMOVE duplicates and process only unique orders.`
+    );
+    if (!keep) {
+      removeDuplicates = true;
+    }
+  }
 
   await renderFirstPage();
 }
@@ -347,6 +373,7 @@ processBtn.addEventListener("click", async () => {
       labelBox,
       invoiceBox,
       orderIdsByPage,
+      removeDuplicates, // NEW
     };
 
     const res = await fetch("/crop", {
