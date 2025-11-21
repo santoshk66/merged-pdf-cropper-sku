@@ -360,6 +360,7 @@ skuDbForm.addEventListener("submit", async (e) => {
 });
 
 // ===== Process PDF (crop + mapping + picklist) =====
+// ===== Process PDF (crop + mapping + picklist) =====
 processBtn.addEventListener("click", async () => {
   if (!labelBox || !invoiceBox || !pdfFilename) {
     alert("Please set label & invoice crop and upload files first.");
@@ -373,7 +374,6 @@ processBtn.addEventListener("click", async () => {
       labelBox,
       invoiceBox,
       orderIdsByPage,
-      removeDuplicates, // NEW
     };
 
     const res = await fetch("/crop", {
@@ -389,25 +389,36 @@ processBtn.addEventListener("click", async () => {
       return;
     }
 
-    // Download cropped labels+invoices PDF
-    const link = document.createElement("a");
-    link.href = data.outputUrl;
-    link.download = "cropped_output.pdf";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    // Download picklist PDF
-    if (data.picklistUrl) {
-      const pickLink = document.createElement("a");
-      pickLink.href = data.picklistUrl;
-      pickLink.download = "picklist.pdf";
-      document.body.appendChild(pickLink);
-      pickLink.click();
-      document.body.removeChild(pickLink);
+    // Prefer ZIP download (contains combined + per-SKU + picklist)
+    if (data.zipUrl) {
+      const zipLink = document.createElement("a");
+      zipLink.href = data.zipUrl;
+      zipLink.download = "labels_picklist_bundle.zip";
+      document.body.appendChild(zipLink);
+      zipLink.click();
+      document.body.removeChild(zipLink);
+    } else if (data.fullOutputUrl) {
+      // Fallback to combined PDF
+      const link = document.createElement("a");
+      link.href = data.fullOutputUrl;
+      link.download = "cropped_output.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
+
+    // (Optional) if you still want to auto-download picklist separately:
+    // if (data.picklistUrl) {
+    //   const pickLink = document.createElement("a");
+    //   pickLink.href = data.picklistUrl;
+    //   pickLink.download = "picklist.pdf";
+    //   document.body.appendChild(pickLink);
+    //   pickLink.click();
+    //   document.body.removeChild(pickLink);
+    // }
   } catch (err) {
     console.error(err);
     alert("Error while calling crop API.");
   }
+});
 });
