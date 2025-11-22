@@ -25,6 +25,10 @@ const processBtn = document.getElementById("processPDF");
 const uploadForm = document.getElementById("uploadForm");
 const skuDbForm = document.getElementById("skuDbForm");
 
+// Dimension display elements
+const labelDimsEl = document.getElementById("labelDims");
+const invoiceDimsEl = document.getElementById("invoiceDims");
+
 // Drag/resize state
 let activeBoxType = null; // 'label' | 'invoice'
 let isDraggingBox = false;
@@ -36,13 +40,25 @@ let dragOffsetY = 0;
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
 
-function updateBox(el, box) {
+function updateBox(el, box, type) {
   el.style.left = box.x + "px";
   el.style.top = box.y + "px";
   el.style.width = box.width + "px";
   el.style.height = box.height + "px";
   el.style.display = "block";
+
+  // 🔍 Update dimension text
+  const text = `x: ${box.x.toFixed(1)}, y: ${box.y.toFixed(1)}, w: ${box.width.toFixed(
+    1
+  )}, h: ${box.height.toFixed(1)}`;
+
+  if (type === "label" && labelDimsEl) {
+    labelDimsEl.textContent = text;
+  } else if (type === "invoice" && invoiceDimsEl) {
+    invoiceDimsEl.textContent = text;
+  }
 }
+
 
 function updateProcessButtonState() {
   processBtn.disabled = !(
