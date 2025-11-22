@@ -33,7 +33,6 @@ let resizeDir = null;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 
-// pdf.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
 
@@ -163,17 +162,17 @@ window.addEventListener("mousemove", (e) => {
       width = mouseX - x;
       height = mouseY - y;
     } else if (resizeDir === "bl") {
-      width = x + width - mouseX;
+      width = (x + width) - mouseX;
       x = mouseX;
       height = mouseY - y;
     } else if (resizeDir === "tr") {
       width = mouseX - x;
-      height = y + height - mouseY;
+      height = (y + height) - mouseY;
       y = mouseY;
     } else if (resizeDir === "tl") {
-      width = x + width - mouseX;
+      width = (x + width) - mouseX;
       x = mouseX;
-      height = y + height - mouseY;
+      height = (y + height) - mouseY;
       y = mouseY;
     }
 
@@ -237,7 +236,7 @@ async function extractOrderIdsFromPdf(pdfFile) {
     const textContent = await page.getTextContent();
     const fullText = textContent.items.map((it) => it.str).join(" ");
 
-    // detect ODxxxxxxxxx even without "Order Id"
+    // UPDATED: detect ODxxxx... even without "Order Id"
     const match = fullText.match(/OD\d{9,}/i);
     if (match) {
       orderIdsByPage.push(match[0]);
@@ -248,7 +247,7 @@ async function extractOrderIdsFromPdf(pdfFile) {
 
   console.log("Detected orderIdsByPage:", orderIdsByPage);
 
-  // === check duplicates
+  // === NEW: check duplicates
   const seen = new Set();
   const dups = new Set();
 
@@ -360,7 +359,7 @@ skuDbForm.addEventListener("submit", async (e) => {
   }
 });
 
-// ===== Process PDF (crop + mapping + picklist + zip) =====
+// ===== Process PDF (crop + mapping + picklist) =====
 processBtn.addEventListener("click", async () => {
   if (!labelBox || !invoiceBox || !pdfFilename) {
     alert("Please set label & invoice crop and upload files first.");
@@ -374,7 +373,7 @@ processBtn.addEventListener("click", async () => {
       labelBox,
       invoiceBox,
       orderIdsByPage,
-      removeDuplicates, // IMPORTANT: send flag to backend
+      removeDuplicates, // NEW
     };
 
     const res = await fetch("/crop", {
@@ -390,33 +389,23 @@ processBtn.addEventListener("click", async () => {
       return;
     }
 
-    // Prefer ZIP download (contains combined + per-SKU + picklist)
-    if (data.zipUrl) {
-      const zipLink = document.createElement("a");
-      zipLink.href = data.zipUrl;
-      zipLink.download = "labels_picklist_bundle.zip";
-      document.body.appendChild(zipLink);
-      zipLink.click();
-      document.body.removeChild(zipLink);
-    } else if (data.fullOutputUrl) {
-      // Fallback to combined PDF
-      const link = document.createElement("a");
-      link.href = data.fullOutputUrl;
-      link.download = "cropped_output.pdf";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
+    // Download cropped labels+invoices PDF
+    const link = document.createElement("a");
+    link.href = data.outputUrl;
+    link.download = "cropped_output.pdf";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
-    // Optional extra picklist download if you ever want it:
-    // if (data.picklistUrl) {
-    //   const pickLink = document.createElement("a");
-    //   pickLink.href = data.picklistUrl;
-    //   pickLink.download = "picklist.pdf";
-    //   document.body.appendChild(pickLink);
-    //   pickLink.click();
-    //   document.body.removeChild(pickLink);
-    // }
+    // Download picklist PDF
+    if (data.picklistUrl) {
+      const pickLink = document.createElement("a");
+      pickLink.href = data.picklistUrl;
+      pickLink.download = "picklist.pdf";
+      document.body.appendChild(pickLink);
+      pickLink.click();
+      document.body.removeChild(pickLink);
+    }
   } catch (err) {
     console.error(err);
     alert("Error while calling crop API.");
