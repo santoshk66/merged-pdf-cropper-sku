@@ -6,6 +6,7 @@ import fs from "fs";
 import fsPromises from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import AdmZip from "adm-zip";
 import {
   buildOrderMapFromCSV,
   buildSkuCorrectionMapFromCSV,
@@ -174,12 +175,17 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *    mappingFilename,
  *    labelBox: { x, y, width, height },
  *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD...", ... ]
+ *    orderIdsByPage: [ "OD...", "OD...", ... ],
+ *    removeDuplicates: boolean
  *  }
  *
  * New behavior:
- *  - Still uses Order Id -> CSV -> SKU/qty mapping
- *  - But output labels are grouped by SKU so same SKUs stay together
+ *  - Uses Order Id -> CSV -> SKU/qty mapping
+ *  - Grouping:
+ *      - FULL combined PDF: all orders
+ *      - SKU-wise PDFs for SKUs with >= 5 orders
+ *      - One combined PDF for all SKUs with < 5 orders + no-SKU pages
+ *  - All PDFs are packed into one ZIP file
  */
 app.post("/crop", async (req, res) => {
   try {
@@ -189,6 +195,7 @@ app.post("/crop", async (req, res) => {
       labelBox,
       invoiceBox,
       orderIdsByPage = [],
+      removeDuplicates = false,
     } = req.body;
 
     if (!pdfFilename) {
@@ -227,8 +234,8 @@ app.post("/crop", async (req, res) => {
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
     const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
-    const outPdf = await PDFDocument.create();
-    const font = await outPdf.embedFont(StandardFonts.Helvetica);
+
+    const pageCount = inputPdf.getPageCount();
 
     // 1) Order Id → CSV row map
     let orderMap = {};
@@ -251,13 +258,21 @@ app.post("/crop", async (req, res) => {
     // 3) Picklist aggregation: finalSku -> { sku, qty, product }
     const picklistMap = {};
 
-    const pageCount = inputPdf.getPageCount();
-
-    // ---- NEW: Prepare jobs array first, don't draw yet ----
+    // ---- Build jobs array, with optional duplicate removal ----
     const jobs = [];
+    const seenOrderIds = new Set();
 
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i];
+
+      // If user chose to remove duplicates, skip repeated orderIds
+      if (removeDuplicates && orderId) {
+        if (seenOrderIds.has(orderId)) {
+          continue;
+        }
+        seenOrderIds.add(orderId);
+      }
+
       const row = orderId ? orderMap[orderId] || {} : {};
 
       const rawSku = (row["SKU"] || "").toString().trim();
@@ -302,7 +317,14 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // ---- NEW: Sort jobs by SKU so labels are in sequence ----
+    if (jobs.length === 0) {
+      return res.status(400).json({
+        error:
+          "No pages to process after applying duplicate removal / mapping. Check CSV & PDF.",
+      });
+    }
+
+    // ---- Sort jobs by SKU so labels are in sequence ----
     const withSku = jobs.filter((j) => j.finalSku);
     const withoutSku = jobs.filter((j) => !j.finalSku);
 
@@ -314,35 +336,49 @@ app.post("/crop", async (req, res) => {
 
     const sortedJobs = [...withSku, ...withoutSku];
 
-    // ---- Now actually draw pages in sorted order ----
-    for (const job of sortedJobs) {
-      const i = job.pageIndex;
+    // ---- Count jobs per SKU for threshold 5 ----
+    const skuCounts = {};
+    for (const job of jobs) {
+      if (!job.finalSku) continue;
+      if (!skuCounts[job.finalSku]) skuCounts[job.finalSku] = 0;
+      skuCounts[job.finalSku]++;
+    }
 
-      const [page] = await outPdf.copyPages(inputPdf, [i]);
+    // ---- Create PDFs ----
+    // FULL combined: all orders
+    const fullDoc = await PDFDocument.create();
+    const fullFont = await fullDoc.embedFont(StandardFonts.Helvetica);
+
+    // Combined for SKUs < 5 or no SKU
+    const smallDoc = await PDFDocument.create();
+    const smallFont = await smallDoc.embedFont(StandardFonts.Helvetica);
+
+    // Separate docs for SKUs with >= 5 orders
+    const skuDocs = {}; // sku -> { doc, font }
+
+    // Helper to add cropped pages for one job into a given PDF
+    async function addCroppedPagesForJob(targetDoc, font, job) {
+      const [page] = await targetDoc.copyPages(inputPdf, [job.pageIndex]);
       const { height } = page.getSize();
 
-      const labelPage = outPdf.addPage([label.width, label.height]);
-      const invoicePage = outPdf.addPage([invoice.width, invoice.height]);
+      const embedded = await targetDoc.embedPage(page);
 
-      const embedded = await outPdf.embedPage(page);
-
-      // ===== LABEL CROP =====
+      // LABEL page
+      const labelPage = targetDoc.addPage([label.width, label.height]);
       labelPage.drawPage(embedded, {
         x: -label.x,
         y: -(height - label.y - label.height),
       });
 
-      // Label text from job (finalSku + qtyRaw)
-      let labelText = job.finalSku;
-      if (job.finalSku && job.qtyRaw) {
-        labelText = `${job.finalSku} (${job.qtyRaw})`;
+      // Text: SKU + qty on bottom of label
+      let labelText = job.finalSku || job.rawSku || "";
+      if (labelText && job.qtyRaw) {
+        labelText = `${labelText} (${job.qtyRaw})`;
       }
-
       if (labelText) {
         const fontSize = 6;
         const textX = 5;
-        const textY = 4; // bottom-left-ish
-
+        const textY = 4;
         labelPage.drawText(labelText, {
           x: textX,
           y: textY,
@@ -352,18 +388,35 @@ app.post("/crop", async (req, res) => {
         });
       }
 
-      // ===== INVOICE CROP =====
+      // INVOICE page
+      const invoicePage = targetDoc.addPage([invoice.width, invoice.height]);
       invoicePage.drawPage(embedded, {
         x: -invoice.x,
         y: -(height - invoice.y - invoice.height),
       });
     }
 
-    // -------- Save cropped PDF (labels+invoices) --------
-    const pdfBytes = await outPdf.save();
-    const outputName = `output-${pdfFilename}.pdf`;
-    const outputPath = path.join(OUTPUT_DIR, outputName);
-    await fsPromises.writeFile(outputPath, pdfBytes);
+    // ---- MAIN LOOP over sortedJobs ----
+    for (const job of sortedJobs) {
+      // 1) Always add to FULL combined PDF
+      await addCroppedPagesForJob(fullDoc, fullFont, job);
+
+      const sku = job.finalSku;
+      const count = sku ? skuCounts[sku] || 0 : 0;
+
+      if (sku && count >= 5) {
+        // This SKU gets its own PDF
+        if (!skuDocs[sku]) {
+          const doc = await PDFDocument.create();
+          const font = await doc.embedFont(StandardFonts.Helvetica);
+          skuDocs[sku] = { doc, font };
+        }
+        await addCroppedPagesForJob(skuDocs[sku].doc, skuDocs[sku].font, job);
+      } else {
+        // Goes into combined-small SKUs PDF (including no-SKU jobs)
+        await addCroppedPagesForJob(smallDoc, smallFont, job);
+      }
+    }
 
     // -------- Build Picklist PDF (with wrapped product names) --------
     const picklistDoc = await PDFDocument.create();
@@ -408,7 +461,6 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // Headers – first page
     drawHeaders(pickPage);
     y -= lineHeight;
 
@@ -420,7 +472,6 @@ app.post("/crop", async (req, res) => {
     for (const item of pickItems) {
       const productText = item.product || "";
 
-      // Wrap product text into multiple lines
       const productLines = wrapTextIntoLines(
         productText,
         maxProductWidth,
@@ -430,7 +481,7 @@ app.post("/crop", async (req, res) => {
 
       const neededHeight = productLines.length * lineHeight;
 
-      // If not enough space, new page
+      // New page if needed
       if (y - neededHeight < 40) {
         pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
         y = pageHeight - 50;
@@ -438,7 +489,7 @@ app.post("/crop", async (req, res) => {
         y -= lineHeight;
       }
 
-      // First line: S.No, SKU, Qty, first product line
+      // First line
       pickPage.drawText(String(index), {
         x: colSnoX,
         y,
@@ -464,7 +515,7 @@ app.post("/crop", async (req, res) => {
         font: pickFont,
       });
 
-      // Additional product lines (only product column)
+      // Extra lines
       for (let li = 1; li < productLines.length; li++) {
         y -= lineHeight;
 
@@ -487,15 +538,46 @@ app.post("/crop", async (req, res) => {
       index++;
     }
 
-    const pickBytes = await picklistDoc.save();
-    const pickName = `picklist-${pdfFilename}.pdf`;
-    const pickPath = path.join(OUTPUT_DIR, pickName);
-    await fsPromises.writeFile(pickPath, pickBytes);
+    // -------- Create ZIP with all PDFs in memory --------
+    const zip = new AdmZip();
 
-    // -------- Response: both PDFs --------
+    // 1) FULL combined PDF
+    const fullBytes = await fullDoc.save();
+    zip.addFile("1_full_combined.pdf", Buffer.from(fullBytes));
+
+    // 2) picklist
+    if (pickItems.length > 0) {
+      const pickBytes = await picklistDoc.save();
+      zip.addFile("2_picklist.pdf", Buffer.from(pickBytes));
+    }
+
+    // 3) combined small SKUs
+    if (smallDoc.getPageCount() > 0) {
+      const smallBytes = await smallDoc.save();
+      zip.addFile("3_combined_small_skus.pdf", Buffer.from(smallBytes));
+    }
+
+    // 4) per-SKU PDFs (SKUs with >= 5 orders)
+    const sortedSkuKeys = Object.keys(skuDocs).sort((a, b) =>
+      a.localeCompare(b)
+    );
+    for (const sku of sortedSkuKeys) {
+      const { doc } = skuDocs[sku];
+      if (doc.getPageCount() === 0) continue;
+      const bytes = await doc.save();
+      const safeSku = sku.replace(/[^a-zA-Z0-9_\-]+/g, "_");
+      const filename = `sku_${safeSku}.pdf`;
+      zip.addFile(filename, Buffer.from(bytes));
+    }
+
+    // -------- Save ZIP to outputs --------
+    const zipName = `bundle-${pdfFilename}.zip`;
+    const zipPath = path.join(OUTPUT_DIR, zipName);
+    zip.writeZip(zipPath);
+
+    // -------- Respond with ZIP URL only --------
     res.json({
-      outputUrl: `/outputs/${outputName}`,
-      picklistUrl: `/outputs/${pickName}`,
+      zipUrl: `/outputs/${zipName}`,
     });
   } catch (err) {
     console.error("Crop error", err);
