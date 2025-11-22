@@ -389,23 +389,20 @@ processBtn.addEventListener("click", async () => {
       return;
     }
 
-    // Download cropped labels+invoices PDF
-    const link = document.createElement("a");
-    link.href = data.outputUrl;
-    link.download = "cropped_output.pdf";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    // Download picklist PDF
-    if (data.picklistUrl) {
-      const pickLink = document.createElement("a");
-      pickLink.href = data.picklistUrl;
-      pickLink.download = "picklist.pdf";
-      document.body.appendChild(pickLink);
-      pickLink.click();
-      document.body.removeChild(pickLink);
+    if (!data.zipUrl) {
+      alert("Crop succeeded but ZIP URL is missing in response.");
+      console.error("Response data:", data);
+      return;
     }
+
+    // Download single ZIP containing all PDFs
+    const zipLink = document.createElement("a");
+    zipLink.href = data.zipUrl;
+    zipLink.download = "orders_bundle.zip";
+    document.body.appendChild(zipLink);
+    zipLink.click();
+    document.body.removeChild(zipLink);
+
   } catch (err) {
     console.error(err);
     alert("Error while calling crop API.");
