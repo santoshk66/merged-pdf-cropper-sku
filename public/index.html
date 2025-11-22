@@ -121,6 +121,25 @@
     cursor: not-allowed;
     opacity: 0.7;
   }
+
+     #dimensions-panel {
+    margin-top: 15px;
+    padding: 10px 12px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    font-size: 0.85rem;
+    color: #4a5568;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  }
+
+  #dimensions-panel div {
+    margin-bottom: 4px;
+  }
+
+  #dimensions-panel strong {
+    color: #2d3748;
+  }
   </style>
 </head>
 <body>
@@ -154,6 +173,12 @@
     <button id="setLabel" type="button">Set Label Crop</button>
     <button id="setInvoice" type="button">Set Invoice Crop</button>
     <button id="processPDF" type="button" disabled>Process PDF</button>
+  </div>
+
+   <!-- 🔍 Dimension Finder Panel -->
+  <div id="dimensions-panel">
+    <div><strong>Label Box:</strong> <span id="labelDims">x: -, y: -, w: -, h: -</span></div>
+    <div><strong>Invoice Box:</strong> <span id="invoiceDims">x: -, y: -, w: -, h: -</span></div>
   </div>
 
   <script src="main.js"></script>
