@@ -1,6 +1,23 @@
 let pdfDoc = null;
 let pageNum = 1;
 
+// ✅ Fixed crop dimensions (your original dimensions)
+const USE_FIXED_DIMENSIONS = true;  // keep true for auto mode
+
+const FIXED_LABEL_BOX = {
+  x: 189.6,
+  y: 27.3,
+  width: 216.0,
+  height: 356.0,
+};
+
+const FIXED_INVOICE_BOX = {
+  x: 35.6,
+  y: 388.0,
+  width: 521.0,
+  height: 395.0,
+};
+
 let labelBox = null;
 let invoiceBox = null;
 
@@ -337,6 +354,16 @@ uploadForm.addEventListener("submit", async (e) => {
 
     console.log("Uploaded pdfFilename:", pdfFilename);
     console.log("Uploaded mappingFilename:", mappingFilename);
+
+    // 🔁 Auto-set label & invoice to fixed dimensions
+    if (USE_FIXED_DIMENSIONS) {
+      labelBox = { ...FIXED_LABEL_BOX };
+      invoiceBox = { ...FIXED_INVOICE_BOX };
+
+      // updateBox already exists in your file – just reuse it
+      updateBox(labelBoxEl, labelBox, "label");
+      updateBox(invoiceBoxEl, invoiceBox, "invoice");
+    }
 
     updateProcessButtonState();
   } catch (err) {
