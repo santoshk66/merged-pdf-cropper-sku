@@ -91,12 +91,12 @@ canvas.addEventListener("mousemove", (e) => {
     height: Math.abs(y - startY),
   };
 
-  if (isDrawing === "label") {
+   if (isDrawing === "label") {
     labelBox = box;
-    updateBox(labelBoxEl, labelBox);
+    updateBox(labelBoxEl, labelBox, "label");
   } else if (isDrawing === "invoice") {
     invoiceBox = box;
-    updateBox(invoiceBoxEl, invoiceBox);
+    updateBox(invoiceBoxEl, invoiceBox, "invoice");
   }
   updateProcessButtonState();
 });
@@ -203,11 +203,12 @@ window.addEventListener("mousemove", (e) => {
     box.width = width;
     box.height = height;
 
-    updateBox(boxEl, box);
+    updateBox(boxEl, box, activeBoxType);
   }
 
   updateProcessButtonState();
 });
+
 
 // Reset flags on mouseup
 window.addEventListener("mouseup", () => {
