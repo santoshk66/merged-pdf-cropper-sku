@@ -1,4 +1,4 @@
-// app.js 
+// app.js
 import express from "express";
 import multer from "multer";
 import cors from "cors";
@@ -179,10 +179,11 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *    removeDuplicates: boolean
  *  }
  *
- * New behavior:
+ * Behavior:
  *  - Uses Order Id -> CSV -> SKU/qty mapping
  *  - Grouping:
- *      - FULL combined PDF: all orders
+ *      - FULL combined PDF: all orders, but with a SKU header page
+ *        before each SKU group (or "NO SKU / UNKNOWN")
  *      - SKU-wise PDFs for SKUs with >= 5 orders
  *      - One combined PDF for all SKUs with < 5 orders + no-SKU pages
  *  - All PDFs are packed into one ZIP file
@@ -397,10 +398,44 @@ app.post("/crop", async (req, res) => {
     }
 
     // ---- MAIN LOOP over sortedJobs ----
+    // Insert a header page in FULL combined whenever SKU group changes
+    let lastGroupKey = null; // tracks previous SKU group
+
     for (const job of sortedJobs) {
-      // 1) Always add to FULL combined PDF
+      // Group key for header – prefer finalSku, then rawSku, else "NO_SKU"
+      const groupKey = job.finalSku || job.rawSku || "NO_SKU";
+
+      // When SKU group changes, insert a header page in FULL combined PDF
+      if (groupKey !== lastGroupKey) {
+        const headerPage = fullDoc.addPage([label.width, label.height]);
+        const { width: hpw, height: hph } = headerPage.getSize();
+
+        const headerText =
+          groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
+
+        const headerFontSize = 24;
+        const textWidth = fullFont.widthOfTextAtSize(
+          headerText,
+          headerFontSize
+        );
+        const textX = (hpw - textWidth) / 2;
+        const textY = (hph - headerFontSize) / 2;
+
+        headerPage.drawText(headerText, {
+          x: textX,
+          y: textY,
+          font: fullFont,
+          size: headerFontSize,
+          color: rgb(0, 0, 0),
+        });
+
+        lastGroupKey = groupKey;
+      }
+
+      // 1️⃣ Add normal label + invoice pages to FULL combined PDF
       await addCroppedPagesForJob(fullDoc, fullFont, job);
 
+      // 2️⃣ Existing logic for per-SKU & small-combined PDFs
       const sku = job.finalSku;
       const count = sku ? skuCounts[sku] || 0 : 0;
 
