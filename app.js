@@ -399,56 +399,52 @@ app.post("/crop", async (req, res) => {
 
     // ---- MAIN LOOP over sortedJobs ----
     // Insert a header page in FULL combined whenever SKU group changes
-    let lastGroupKey = null; // tracks previous SKU group
-
-    for (const job of sortedJobs) {
-      // Group key for header – prefer finalSku, then rawSku, else "NO_SKU"
-      const groupKey = job.finalSku || job.rawSku || "NO_SKU";
-
-      // When SKU group changes, insert a header page in FULL combined PDF
-      if (groupKey !== lastGroupKey) {
-        const headerPage = fullDoc.addPage([label.width, label.height]);
-        const { width: hpw, height: hph } = headerPage.getSize();
-
-        const headerText =
-          groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
-
-        // Smaller font size
-        const headerFontSize = 14;
-
-        // We will draw text VERTICALLY (one character under another),
-        // centered roughly in the page.
-        const lineSpacing = headerFontSize * 1.2;
-        const totalHeight = headerText.length * lineSpacing;
-
-        // X is near center of page
-        const textX = hpw / 2 - headerFontSize / 2;
-
-        // Start Y so that the whole vertical block is vertically centered
-        let currentY = (hph + totalHeight) / 2;
-
-        for (let i = 0; i < headerText.length; i++) {
-          const ch = headerText[i];
-
-          // Optional: skip drawing spaces, just move the Y
-          if (ch === " ") {
-            currentY -= lineSpacing;
-            continue;
-          }
-
-          headerPage.drawText(ch, {
-            x: textX,
-            y: currentY,
-            font: fullFont,
-            size: headerFontSize,
-            color: rgb(0, 0, 0),
-          });
-
-          currentY -= lineSpacing;
-        }
-
-        lastGroupKey = groupKey;
+    // When SKU group changes, insert a header page in FULL combined PDF
+    if (groupKey !== lastGroupKey) {
+      const headerPage = fullDoc.addPage([label.width, label.height]);
+      const { width: hpw, height: hph } = headerPage.getSize();
+  
+      const headerText =
+        groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
+  
+      // Smaller font size for header
+      const headerFontSize = 12;
+      const lineHeight = headerFontSize * 1.3;
+  
+      // Max width for text so it doesn't touch edges
+      const maxHeaderWidth = hpw - 40; // 20pt margin on each side
+  
+      // Use your existing helper to wrap long SKUs into multiple lines
+      const headerLines = wrapTextIntoLines(
+        headerText,
+        maxHeaderWidth,
+        fullFont,
+        headerFontSize
+      );
+  
+      // Total height of all lines
+      const totalHeight = headerLines.length * lineHeight;
+  
+      // Start Y so the header block is vertically centered
+      let y = (hph + totalHeight) / 2 - lineHeight;
+  
+      for (const line of headerLines) {
+        const lineWidth = fullFont.widthOfTextAtSize(line, headerFontSize);
+        const x = (hpw - lineWidth) / 2; // center horizontally
+  
+        headerPage.drawText(line, {
+          x,
+          y,
+          font: fullFont,
+          size: headerFontSize,
+          color: rgb(0, 0, 0),
+        });
+  
+        y -= lineHeight;
       }
+  
+      lastGroupKey = groupKey;
+    }
 
       // 1️⃣ Add normal label + invoice pages to FULL combined PDF
       await addCroppedPagesForJob(fullDoc, fullFont, job);
