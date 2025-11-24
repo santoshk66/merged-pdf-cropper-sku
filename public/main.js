@@ -46,6 +46,45 @@ const skuDbForm = document.getElementById("skuDbForm");
 const labelDimsEl = document.getElementById("labelDims");
 const invoiceDimsEl = document.getElementById("invoiceDims");
 
+// 🔹 Status log & loading overlay elements
+const statusLogEl = document.getElementById("statusLog");
+const loadingOverlayEl = document.getElementById("loadingOverlay");
+const loadingTextEl = loadingOverlayEl
+  ? loadingOverlayEl.querySelector(".loading-text")
+  : null;
+
+function logStatus(message) {
+  if (!statusLogEl) return;
+
+  const line = document.createElement("div");
+  line.className = "log-line";
+
+  const timeSpan = document.createElement("span");
+  timeSpan.className = "time";
+  timeSpan.textContent = `[${new Date().toLocaleTimeString()}]`;
+
+  const msgSpan = document.createElement("span");
+  msgSpan.textContent = " " + message;
+
+  line.appendChild(timeSpan);
+  line.appendChild(msgSpan);
+
+  statusLogEl.appendChild(line);
+  statusLogEl.scrollTop = statusLogEl.scrollHeight;
+}
+
+function setLoading(isLoading, message) {
+  if (!loadingOverlayEl) return;
+  if (isLoading) {
+    if (loadingTextEl && message) {
+      loadingTextEl.textContent = message;
+    }
+    loadingOverlayEl.style.display = "flex";
+  } else {
+    loadingOverlayEl.style.display = "none";
+  }
+}
+
 // Drag/resize state
 let activeBoxType = null; // 'label' | 'invoice'
 let isDraggingBox = false;
@@ -75,7 +114,6 @@ function updateBox(el, box, type) {
     invoiceDimsEl.textContent = text;
   }
 }
-
 
 function updateProcessButtonState() {
   processBtn.disabled = !(
@@ -108,7 +146,7 @@ canvas.addEventListener("mousemove", (e) => {
     height: Math.abs(y - startY),
   };
 
-   if (isDrawing === "label") {
+  if (isDrawing === "label") {
     labelBox = box;
     updateBox(labelBoxEl, labelBox, "label");
   } else if (isDrawing === "invoice") {
@@ -185,7 +223,7 @@ window.addEventListener("mousemove", (e) => {
 
     box.x = newX;
     box.y = newY;
-    updateBox(boxEl, box);
+    updateBox(boxEl, box, activeBoxType);
   }
 
   if (isResizingBox) {
@@ -225,7 +263,6 @@ window.addEventListener("mousemove", (e) => {
 
   updateProcessButtonState();
 });
-
 
 // Reset flags on mouseup
 window.addEventListener("mouseup", () => {
@@ -327,17 +364,26 @@ uploadForm.addEventListener("submit", async (e) => {
   }
 
   try {
+    logStatus("🔍 Detecting Order IDs from PDF...");
+    setLoading(true, "Detecting orders from PDF...");
+
     // Detect order IDs locally
     await extractOrderIdsFromPdf(pdfFile);
+
+    const detectedCount = orderIdsByPage.filter((id) => !!id).length;
+    logStatus(`✅ Detected ${detectedCount} Order IDs in PDF.`);
 
     if (!orderIdsByPage.some((id) => !!id)) {
       const proceed = confirm(
         "No Order Id was detected in the PDF pages. Do you still want to upload and continue?"
       );
-      if (!proceed) return;
+      if (!proceed) {
+        setLoading(false);
+        return;
+      }
     }
 
-    // Upload to backend
+    logStatus("⬆️ Uploading PDF and CSV to server...");
     const response = await fetch("/upload", {
       method: "POST",
       body: formData,
@@ -345,30 +391,38 @@ uploadForm.addEventListener("submit", async (e) => {
 
     const json = await response.json();
     if (!response.ok) {
+      logStatus("❌ Upload failed.");
       alert("Upload failed: " + (json.error || "Unknown error"));
+      setLoading(false);
       return;
     }
 
     pdfFilename = json.pdfFilename;
     mappingFilename = json.mappingFilename || null;
 
-    console.log("Uploaded pdfFilename:", pdfFilename);
-    console.log("Uploaded mappingFilename:", mappingFilename);
+    logStatus(`📄 Upload success. Server filename: ${pdfFilename}`);
+    if (mappingFilename) {
+      logStatus(`📊 Mapping CSV stored as: ${mappingFilename}`);
+    }
 
     // 🔁 Auto-set label & invoice to fixed dimensions
     if (USE_FIXED_DIMENSIONS) {
       labelBox = { ...FIXED_LABEL_BOX };
       invoiceBox = { ...FIXED_INVOICE_BOX };
 
-      // updateBox already exists in your file – just reuse it
       updateBox(labelBoxEl, labelBox, "label");
       updateBox(invoiceBoxEl, invoiceBox, "invoice");
+      logStatus("📐 Applied fixed label & invoice crop dimensions.");
     }
 
     updateProcessButtonState();
+    logStatus("🟢 Ready to Process PDF.");
   } catch (err) {
     console.error(err);
+    logStatus("❌ Error during detection or upload: " + err.message);
     alert("Error while processing PDF or uploading files.");
+  } finally {
+    setLoading(false);
   }
 });
 
@@ -384,6 +438,7 @@ skuDbForm.addEventListener("submit", async (e) => {
   }
 
   try {
+    logStatus("⬆️ Uploading SKU DB CSV to Firestore...");
     const res = await fetch("/upload-sku-db", {
       method: "POST",
       body: formData,
@@ -392,18 +447,21 @@ skuDbForm.addEventListener("submit", async (e) => {
     const data = await res.json();
 
     if (!res.ok) {
+      logStatus("❌ SKU DB upload failed.");
       alert("SKU DB upload failed: " + (data.error || "Unknown error"));
       return;
     }
 
+    logStatus("✅ " + (data.message || "SKU DB uploaded successfully."));
     alert(data.message || "SKU DB uploaded successfully.");
   } catch (err) {
     console.error(err);
+    logStatus("❌ Error uploading SKU DB: " + err.message);
     alert("Error uploading SKU DB.");
   }
 });
 
-// ===== Process PDF (crop + mapping + picklist) =====
+// ===== Process PDF (crop + mapping + picklist + zip) =====
 processBtn.addEventListener("click", async () => {
   if (!labelBox || !invoiceBox || !pdfFilename) {
     alert("Please set label & invoice crop and upload files first.");
@@ -420,6 +478,9 @@ processBtn.addEventListener("click", async () => {
       removeDuplicates, // NEW
     };
 
+    logStatus("⚙️ Starting crop and PDF generation on server...");
+    setLoading(true, "Generating cropped PDFs and ZIP...");
+
     const res = await fetch("/crop", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -429,26 +490,32 @@ processBtn.addEventListener("click", async () => {
     const data = await res.json();
 
     if (!res.ok) {
+      logStatus("❌ Crop failed: " + (data.error || "Unknown error"));
       alert("Crop failed: " + (data.error || "Unknown error"));
+      setLoading(false);
       return;
     }
 
     if (!data.zipUrl) {
+      logStatus("ℹ️ Processing succeeded but ZIP URL missing in response.");
       alert("Crop succeeded but ZIP URL is missing in response.");
-      console.error("Response data:", data);
+      setLoading(false);
       return;
     }
 
-    // Download single ZIP containing all PDFs
+    logStatus("📦 Processing complete. Preparing ZIP download...");
     const zipLink = document.createElement("a");
     zipLink.href = data.zipUrl;
     zipLink.download = "orders_bundle.zip";
     document.body.appendChild(zipLink);
     zipLink.click();
     document.body.removeChild(zipLink);
-
+    logStatus("⬇️ Download started: orders_bundle.zip");
   } catch (err) {
     console.error(err);
+    logStatus("❌ Error while calling crop API: " + err.message);
     alert("Error while calling crop API.");
+  } finally {
+    setLoading(false);
   }
 });
