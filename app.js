@@ -413,21 +413,39 @@ app.post("/crop", async (req, res) => {
         const headerText =
           groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
 
-        const headerFontSize = 24;
-        const textWidth = fullFont.widthOfTextAtSize(
-          headerText,
-          headerFontSize
-        );
-        const textX = (hpw - textWidth) / 2;
-        const textY = (hph - headerFontSize) / 2;
+        // Smaller font size
+        const headerFontSize = 14;
 
-        headerPage.drawText(headerText, {
-          x: textX,
-          y: textY,
-          font: fullFont,
-          size: headerFontSize,
-          color: rgb(0, 0, 0),
-        });
+        // We will draw text VERTICALLY (one character under another),
+        // centered roughly in the page.
+        const lineSpacing = headerFontSize * 1.2;
+        const totalHeight = headerText.length * lineSpacing;
+
+        // X is near center of page
+        const textX = hpw / 2 - headerFontSize / 2;
+
+        // Start Y so that the whole vertical block is vertically centered
+        let currentY = (hph + totalHeight) / 2;
+
+        for (let i = 0; i < headerText.length; i++) {
+          const ch = headerText[i];
+
+          // Optional: skip drawing spaces, just move the Y
+          if (ch === " ") {
+            currentY -= lineSpacing;
+            continue;
+          }
+
+          headerPage.drawText(ch, {
+            x: textX,
+            y: currentY,
+            font: fullFont,
+            size: headerFontSize,
+            color: rgb(0, 0, 0),
+          });
+
+          currentY -= lineSpacing;
+        }
 
         lastGroupKey = groupKey;
       }
