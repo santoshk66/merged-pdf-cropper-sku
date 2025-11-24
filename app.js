@@ -35,7 +35,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.static("public"));
 app.use("/outputs", express.static(OUTPUT_DIR));
 
-// ----------------- Helper: wrap product text for picklist -----------------
+// ----------------- Helper: wrap product text for picklist & headers -----------------
 function wrapTextIntoLines(text, maxWidth, font, fontSize) {
   if (!text) return [""];
   const words = text.split(/\s+/);
@@ -398,53 +398,61 @@ app.post("/crop", async (req, res) => {
     }
 
     // ---- MAIN LOOP over sortedJobs ----
-    // Insert a header page in FULL combined whenever SKU group changes
-    // When SKU group changes, insert a header page in FULL combined PDF
-    if (groupKey !== lastGroupKey) {
-      const headerPage = fullDoc.addPage([label.width, label.height]);
-      const { width: hpw, height: hph } = headerPage.getSize();
-  
-      const headerText =
-        groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
-  
-      // Smaller font size for header
-      const headerFontSize = 12;
-      const lineHeight = headerFontSize * 1.3;
-  
-      // Max width for text so it doesn't touch edges
-      const maxHeaderWidth = hpw - 40; // 20pt margin on each side
-  
-      // Use your existing helper to wrap long SKUs into multiple lines
-      const headerLines = wrapTextIntoLines(
-        headerText,
-        maxHeaderWidth,
-        fullFont,
-        headerFontSize
-      );
-  
-      // Total height of all lines
-      const totalHeight = headerLines.length * lineHeight;
-  
-      // Start Y so the header block is vertically centered
-      let y = (hph + totalHeight) / 2 - lineHeight;
-  
-      for (const line of headerLines) {
-        const lineWidth = fullFont.widthOfTextAtSize(line, headerFontSize);
-        const x = (hpw - lineWidth) / 2; // center horizontally
-  
-        headerPage.drawText(line, {
-          x,
-          y,
-          font: fullFont,
-          size: headerFontSize,
-          color: rgb(0, 0, 0),
-        });
-  
-        y -= lineHeight;
+    let lastGroupKey = null; // tracks previous SKU group
+
+    for (const job of sortedJobs) {
+      // Group key for header – prefer finalSku, then rawSku, else "NO_SKU"
+      const groupKey = job.finalSku || job.rawSku || "NO_SKU";
+
+      // When SKU group changes, insert a header page in FULL combined PDF
+      if (groupKey !== lastGroupKey) {
+        const headerPage = fullDoc.addPage([label.width, label.height]);
+        const { width: hpw, height: hph } = headerPage.getSize();
+
+        const headerText =
+          groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
+
+        // Smaller font size for header
+        const headerFontSize = 12;
+        const headerLineHeight = headerFontSize * 1.3;
+
+        // Max width for text so it doesn't touch edges
+        const maxHeaderWidth = hpw - 40; // 20pt margin on each side
+
+        // Wrap long SKUs into multiple lines
+        const headerLines = wrapTextIntoLines(
+          headerText,
+          maxHeaderWidth,
+          fullFont,
+          headerFontSize
+        );
+
+        // Total height of all lines
+        const totalHeaderHeight = headerLines.length * headerLineHeight;
+
+        // Start Y so the header block is vertically centered
+        let headerY = (hph + totalHeaderHeight) / 2 - headerLineHeight;
+
+        for (const line of headerLines) {
+          const lineWidth = fullFont.widthOfTextAtSize(
+            line,
+            headerFontSize
+          );
+          const headerX = (hpw - lineWidth) / 2; // center horizontally
+
+          headerPage.drawText(line, {
+            x: headerX,
+            y: headerY,
+            font: fullFont,
+            size: headerFontSize,
+            color: rgb(0, 0, 0),
+          });
+
+          headerY -= headerLineHeight;
+        }
+
+        lastGroupKey = groupKey;
       }
-  
-      lastGroupKey = groupKey;
-    }
 
       // 1️⃣ Add normal label + invoice pages to FULL combined PDF
       await addCroppedPagesForJob(fullDoc, fullFont, job);
