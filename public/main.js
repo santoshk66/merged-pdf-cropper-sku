@@ -1,11 +1,8 @@
 let pdfDoc = null;
 let pageNum = 1;
 
-// ===== Picklist state =====
-let picklistItems = []; // { sku, product, requiredQty, pickedQty, remaining }
-const picklistPanelEl = document.getElementById("picklistPanel");
-const picklistTableBodyEl = document.getElementById("picklistTableBody");
-const markPicklistDoneBtn = document.getElementById("markPicklistDone");
+// ===== Picklist state (only for seeding localStorage) =====
+let picklistItemsSeed = []; // only used to seed localStorage from /crop
 
 // ✅ Fixed crop dimensions (your original dimensions)
 const USE_FIXED_DIMENSIONS = true; // keep true for auto mode
@@ -89,141 +86,6 @@ function setLoading(isLoading, message) {
   } else {
     loadingOverlayEl.style.display = "none";
   }
-}
-
-// ===== Picklist Panel Logic =====
-function initPicklistPanel(picklistArray) {
-  if (!Array.isArray(picklistArray) || picklistArray.length === 0) {
-    if (picklistPanelEl) picklistPanelEl.style.display = "none";
-    picklistItems = [];
-    return;
-  }
-
-  picklistItems = picklistArray.map((item) => ({
-    sku: item.sku,
-    product: item.product || "",
-    requiredQty: Number(item.qty) || 0,
-    pickedQty: 0,
-    remaining: Number(item.qty) || 0,
-  }));
-
-  renderPicklistTable();
-  if (picklistPanelEl) {
-    picklistPanelEl.style.display = "block";
-  }
-
-  logStatus(`📋 Picklist loaded with ${picklistItems.length} SKUs.`);
-}
-
-function renderPicklistTable() {
-  if (!picklistTableBodyEl) return;
-
-  picklistTableBodyEl.innerHTML = "";
-
-  picklistItems.forEach((row, index) => {
-    const tr = document.createElement("tr");
-
-    const status =
-      row.remaining <= 0
-        ? "Done"
-        : row.pickedQty > 0
-        ? "Partial"
-        : "Pending";
-
-    const statusColor =
-      status === "Done"
-        ? "#38a169"
-        : status === "Partial"
-        ? "#dd6b20"
-        : "#718096";
-
-    tr.innerHTML = `
-      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7;">${
-        index + 1
-      }</td>
-      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; font-weight:500;">${
-        row.sku
-      }</td>
-      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${row.product}">${
-      row.product
-    }</td>
-      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; text-align:right;">${
-        row.requiredQty
-      }</td>
-      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; text-align:right;">
-        <input
-          type="number"
-          min="0"
-          data-index="${index}"
-          value="${row.pickedQty}"
-          style="width:70px; padding:2px 4px; border:1px solid #e2e8f0; border-radius:4px; text-align:right; font-size:0.8rem;"
-          class="picklist-picked-input"
-        />
-      </td>
-      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; text-align:right;">
-        ${row.remaining}
-      </td>
-      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; color:${statusColor}; font-weight:500;">
-        ${status}
-      </td>
-    `;
-
-    picklistTableBodyEl.appendChild(tr);
-  });
-
-  // Attach change listeners for inputs
-  const inputs = picklistTableBodyEl.querySelectorAll(
-    "input.picklist-picked-input"
-  );
-  inputs.forEach((input) => {
-    input.addEventListener("change", onPickedQtyChange);
-  });
-}
-
-function onPickedQtyChange(e) {
-  const idx = Number(e.target.getAttribute("data-index"));
-  if (Number.isNaN(idx) || !picklistItems[idx]) return;
-
-  let val = Number(e.target.value);
-  if (Number.isNaN(val) || val < 0) val = 0;
-
-  const row = picklistItems[idx];
-
-  // Don't allow picked > required
-  if (val > row.requiredQty) {
-    val = row.requiredQty;
-    e.target.value = val;
-  }
-
-  row.pickedQty = val;
-  row.remaining = row.requiredQty - row.pickedQty;
-
-  renderPicklistTable();
-}
-
-if (markPicklistDoneBtn) {
-  markPicklistDoneBtn.addEventListener("click", () => {
-    if (!picklistItems.length) {
-      alert("No picklist loaded.");
-      return;
-    }
-
-    const notDone = picklistItems.filter((r) => r.remaining > 0);
-    if (notDone.length > 0) {
-      const totalRemaining = notDone.reduce(
-        (sum, r) => sum + r.remaining,
-        0
-      );
-      const confirmPartial = confirm(
-        `There are still ${totalRemaining} units remaining.\n` +
-          `Do you still want to mark this picklist as fulfilled?`
-      );
-      if (!confirmPartial) return;
-    }
-
-    logStatus("✅ Picklist marked as fulfilled.");
-    alert("Picklist marked as fulfilled. You can now proceed to pack/ship.");
-  });
 }
 
 // Drag/resize state
@@ -637,9 +499,28 @@ processBtn.addEventListener("click", async () => {
       return;
     }
 
-    // 🔹 Initialize live picklist panel if server sent data
+    // 🔹 Seed picklist in localStorage & open new tab
     if (Array.isArray(data.picklist) && data.picklist.length > 0) {
-      initPicklistPanel(data.picklist);
+      picklistItemsSeed = data.picklist.map((item) => ({
+        sku: item.sku,
+        product: item.product || "",
+        requiredQty: Number(item.qty) || 0,
+        pickedQty: 0,
+        remaining: Number(item.qty) || 0,
+      }));
+
+      // Save to localStorage so it survives refresh
+      localStorage.setItem(
+        "picklist_state",
+        JSON.stringify(picklistItemsSeed)
+      );
+      localStorage.setItem(
+        "picklist_status",
+        JSON.stringify({ fulfilled: false, createdAt: Date.now() })
+      );
+
+      logStatus("📋 Picklist saved. Opening picklist panel in new tab...");
+      window.open("/picklist.html", "_blank");
     } else {
       logStatus("ℹ️ No picklist data returned from server.");
     }
