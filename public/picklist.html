@@ -95,6 +95,39 @@
       color: #ffffff;
     }
 
+    #manualLoadRow {
+      margin-top: 8px;
+      margin-bottom: 4px;
+      display: none; /* shown when no ID found */
+    }
+
+    #manualPicklistForm {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      font-size: 0.85rem;
+    }
+
+    #manualPicklistForm label {
+      color: var(--text-muted);
+      margin-right: 4px;
+    }
+
+    #manualPicklistId {
+      flex: 1 1 180px;
+      min-width: 0;
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+
+    #manualPicklistForm button {
+      background: #3182ce;
+      color: #ffffff;
+    }
+
     #loadingMsg,
     #emptyMsg {
       padding: 10px 12px;
@@ -192,9 +225,13 @@
       h1 {
         font-size: 1.15rem;
       }
+
+      table {
+        min-width: 600px;
+      }
     }
 
-    /* Mobile: stack header & buttons, improve tap targets */
+    /* Mobile: stack header & buttons */
     @media (max-width: 640px) {
       body {
         padding: 8px;
@@ -220,6 +257,15 @@
         text-align: center;
       }
 
+      #manualPicklistForm {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      #manualPicklistForm button {
+        width: 100%;
+      }
+
       #tableWrapper {
         max-height: none;
         margin-top: 10px;
@@ -227,11 +273,11 @@
 
       table {
         font-size: 0.78rem;
-        min-width: 100%; /* rely on stacked behaviour below */
+        min-width: 100%;
       }
     }
 
-    /* Extra-small screens: convert rows to "cards" */
+    /* Extra-small: turn rows into cards */
     @media (max-width: 520px) {
       thead {
         display: none;
@@ -301,6 +347,15 @@
       </div>
     </div>
 
+    <!-- Manual ID input (for other devices) -->
+    <div id="manualLoadRow">
+      <form id="manualPicklistForm">
+        <label for="manualPicklistId">Enter Picklist ID (e.g. pl_1764151668502):</label>
+        <input type="text" id="manualPicklistId" placeholder="pl_..." />
+        <button type="submit">Load Picklist</button>
+      </form>
+    </div>
+
     <div id="loadingMsg">Loading picklist from server...</div>
     <div id="emptyMsg">
       No picklist found. Generate a picklist from the main Flipkart cropper app first.
@@ -325,7 +380,6 @@
     </div>
   </div>
 
-  <!-- Your JS logic to load/update picklist -->
   <script src="picklist.js"></script>
 </body>
 </html>
