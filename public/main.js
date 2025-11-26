@@ -295,19 +295,8 @@ async function renderFirstPage() {
 }
 
 // ===== Extract Order Id from each page =====
-// ✅ New helper that works with Blob OR URL string
-async function extractOrderIdsFromPdfSource(source) {
-  let arrayBuffer;
-
-  if (source instanceof Blob) {
-    arrayBuffer = await source.arrayBuffer();
-  } else if (typeof source === "string") {
-    const res = await fetch(source);
-    if (!res.ok) throw new Error("Failed to fetch merged PDF from server");
-    arrayBuffer = await res.arrayBuffer();
-  } else {
-    throw new Error("Unsupported PDF source");
-  }
+async function extractOrderIdsFromPdf(pdfFile) {
+  const arrayBuffer = await pdfFile.arrayBuffer();
 
   pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const totalPages = pdfDoc.numPages;
@@ -318,6 +307,7 @@ async function extractOrderIdsFromPdfSource(source) {
     const textContent = await page.getTextContent();
     const fullText = textContent.items.map((it) => it.str).join(" ");
 
+    // UPDATED: detect ODxxxx... even without "Order Id"
     const match = fullText.match(/OD\d{9,}/i);
     if (match) {
       orderIdsByPage.push(match[0]);
@@ -326,9 +316,9 @@ async function extractOrderIdsFromPdfSource(source) {
     }
   }
 
-  console.log("Detected orderIdsByPage (merged):", orderIdsByPage);
+  console.log("Detected orderIdsByPage:", orderIdsByPage);
 
-  // duplicate detection logic stays the same
+  // === NEW: check duplicates
   const seen = new Set();
   const dups = new Set();
 
@@ -343,7 +333,7 @@ async function extractOrderIdsFromPdfSource(source) {
   if (dups.size > 0) {
     const list = Array.from(dups).join(", ");
     const keep = confirm(
-      `Duplicate Order Ids detected in this merged PDF:\n${list}\n\n` +
+      `Duplicate Order Ids detected in this PDF:\n${list}\n\n` +
         `Press OK to KEEP duplicates.\n` +
         `Press Cancel to REMOVE duplicates and process only unique orders.`
     );
@@ -352,31 +342,48 @@ async function extractOrderIdsFromPdfSource(source) {
     }
   }
 
-  // finally render page 1 of merged PDF for preview
   await renderFirstPage();
 }
 
-// ===== Upload MULTI Label PDFs + Full CSV =====
+// ===== Upload Label PDF + Full CSV =====
 uploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  const pdfInput = uploadForm.querySelector('input[name="pdfs"]');
-  if (!pdfInput || pdfInput.files.length === 0) {
-    alert("Please select at least one label PDF.");
+  const formData = new FormData(uploadForm);
+
+  const pdfFile = formData.get("pdf");
+  if (!pdfFile) {
+    alert("Please select a PDF file.");
     return;
   }
 
-  const csvFile = uploadForm.querySelector('input[name="skuMapping"]').files[0];
+  const csvFile = formData.get("skuMapping");
   if (!csvFile) {
     alert("Please select the full CSV mapping file.");
     return;
   }
 
-  const formData = new FormData(uploadForm);
-
   try {
-    // 1️⃣ Upload all PDFs + CSV → backend merges & returns merged filename
-    // (your spinner / logs code can be around this if you added it)
+    logStatus("🔍 Detecting Order IDs from PDF...");
+    setLoading(true, "Detecting orders from PDF...");
+
+    // Detect order IDs locally
+    await extractOrderIdsFromPdf(pdfFile);
+
+    const detectedCount = orderIdsByPage.filter((id) => !!id).length;
+    logStatus(`✅ Detected ${detectedCount} Order IDs in PDF.`);
+
+    if (!orderIdsByPage.some((id) => !!id)) {
+      const proceed = confirm(
+        "No Order Id was detected in the PDF pages. Do you still want to upload and continue?"
+      );
+      if (!proceed) {
+        setLoading(false);
+        return;
+      }
+    }
+
+    logStatus("⬆️ Uploading PDF and CSV to server...");
     const response = await fetch("/upload", {
       method: "POST",
       body: formData,
@@ -384,32 +391,38 @@ uploadForm.addEventListener("submit", async (e) => {
 
     const json = await response.json();
     if (!response.ok) {
+      logStatus("❌ Upload failed.");
       alert("Upload failed: " + (json.error || "Unknown error"));
+      setLoading(false);
       return;
     }
 
-    pdfFilename = json.pdfFilename;              // merged PDF filename
+    pdfFilename = json.pdfFilename;
     mappingFilename = json.mappingFilename || null;
 
-    console.log("Merged pdfFilename:", pdfFilename);
-    console.log("Uploaded mappingFilename:", mappingFilename);
+    logStatus(`📄 Upload success. Server filename: ${pdfFilename}`);
+    if (mappingFilename) {
+      logStatus(`📊 Mapping CSV stored as: ${mappingFilename}`);
+    }
 
-    // 2️⃣ Load merged PDF from server for order ID detection + preview
-    const mergedUrl = `/uploads/${pdfFilename}`;
-    await extractOrderIdsFromPdfSource(mergedUrl);
-
-    // 3️⃣ Auto-apply your fixed label/invoice boxes if enabled
+    // 🔁 Auto-set label & invoice to fixed dimensions
     if (USE_FIXED_DIMENSIONS) {
       labelBox = { ...FIXED_LABEL_BOX };
       invoiceBox = { ...FIXED_INVOICE_BOX };
+
       updateBox(labelBoxEl, labelBox, "label");
       updateBox(invoiceBoxEl, invoiceBox, "invoice");
+      logStatus("📐 Applied fixed label & invoice crop dimensions.");
     }
 
     updateProcessButtonState();
+    logStatus("🟢 Ready to Process PDF.");
   } catch (err) {
     console.error(err);
-    alert("Error while uploading or processing merged PDF.");
+    logStatus("❌ Error during detection or upload: " + err.message);
+    alert("Error while processing PDF or uploading files.");
+  } finally {
+    setLoading(false);
   }
 });
 
