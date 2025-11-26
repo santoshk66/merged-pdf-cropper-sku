@@ -1,73 +1,87 @@
 let picklistItems = [];
+let picklistId = null;
+
 const bodyEl = document.getElementById("picklistBody");
 const wrapperEl = document.getElementById("tableWrapper");
 const emptyMsgEl = document.getElementById("emptyMsg");
+const loadingMsgEl = document.getElementById("loadingMsg");
 const statusBadgeEl = document.getElementById("statusBadge");
+const picklistIdLabelEl = document.getElementById("picklistIdLabel");
 const markDoneBtn = document.getElementById("markDoneBtn");
 const resetBtn = document.getElementById("resetBtn");
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem("picklist_state");
-    if (!raw) {
-      picklistItems = [];
-      return;
-    }
-    picklistItems = JSON.parse(raw) || [];
-  } catch (e) {
-    console.error("Error parsing picklist_state:", e);
-    picklistItems = [];
-  }
+function setStatusBadge(text, bg, color) {
+  statusBadgeEl.textContent = text;
+  statusBadgeEl.style.background = bg;
+  statusBadgeEl.style.color = color;
 }
 
-function saveState() {
-  localStorage.setItem("picklist_state", JSON.stringify(picklistItems));
-}
+function calcOverallStatus(items) {
+  if (!items.length) return "No Data";
 
-function loadStatus() {
-  try {
-    const raw = localStorage.getItem("picklist_status");
-    if (!raw) return { fulfilled: false };
-    return JSON.parse(raw);
-  } catch {
-    return { fulfilled: false };
-  }
-}
-
-function saveStatus(statusObj) {
-  localStorage.setItem("picklist_status", JSON.stringify(statusObj));
-}
-
-function calcOverallStatus() {
-  if (!picklistItems.length) return "No Data";
-
-  const remainingTotal = picklistItems.reduce(
+  const remainingTotal = items.reduce(
     (sum, r) => sum + (Number(r.remaining) || 0),
     0
   );
 
   if (remainingTotal === 0) return "All Picked";
-  const pickedSome = picklistItems.some(
+  const pickedSome = items.some(
     (r) => Number(r.pickedQty) > 0 && Number(r.remaining) > 0
   );
   return pickedSome ? "Partial" : "Pending";
 }
 
-function render() {
-  loadState(); // always sync with localStorage
-
-  if (!picklistItems.length) {
-    wrapperEl.style.display = "none";
+async function loadPicklistFromServer() {
+  picklistId = localStorage.getItem("current_picklist_id");
+  if (!picklistId) {
+    loadingMsgEl.style.display = "none";
     emptyMsgEl.style.display = "block";
-    statusBadgeEl.textContent = "No picklist found";
-    statusBadgeEl.style.background = "#fed7d7";
-    statusBadgeEl.style.color = "#c53030";
+    setStatusBadge("No picklist ID in browser", "#fed7d7", "#c53030");
     return;
   }
 
-  wrapperEl.style.display = "block";
-  emptyMsgEl.style.display = "none";
+  picklistIdLabelEl.textContent = `Picklist ID: ${picklistId}`;
 
+  try {
+    const res = await fetch(`/picklist/${picklistId}`);
+    if (!res.ok) {
+      throw new Error("Server returned " + res.status);
+    }
+    const data = await res.json();
+
+    picklistItems = (data.items || []).map((row) => ({
+      sku: row.sku,
+      product: row.product || "",
+      requiredQty: Number(row.requiredQty) || 0,
+      pickedQty: Number(row.pickedQty) || 0,
+      remaining:
+        row.remaining != null
+          ? Number(row.remaining)
+          : (Number(row.requiredQty) || 0) - (Number(row.pickedQty) || 0),
+    }));
+
+    if (!picklistItems.length) {
+      loadingMsgEl.style.display = "none";
+      emptyMsgEl.style.display = "block";
+      setStatusBadge("Empty picklist", "#fed7d7", "#c53030");
+      return;
+    }
+
+    loadingMsgEl.style.display = "none";
+    emptyMsgEl.style.display = "none";
+    wrapperEl.style.display = "block";
+    renderTable();
+  } catch (err) {
+    console.error("Error loading picklist:", err);
+    loadingMsgEl.style.display = "none";
+    emptyMsgEl.style.display = "block";
+    emptyMsgEl.textContent =
+      "Failed to load picklist from server. Please try again.";
+    setStatusBadge("Error loading picklist", "#fed7d7", "#c53030");
+  }
+}
+
+function renderTable() {
   bodyEl.innerHTML = "";
 
   picklistItems.forEach((row, index) => {
@@ -91,8 +105,8 @@ function render() {
     tr.innerHTML = `
       <td>${index + 1}</td>
       <td style="font-weight:500;">${row.sku}</td>
-      <td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${row.product || ""}">
-        ${row.product || ""}
+      <td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${row.product}">
+        ${row.product}
       </td>
       <td>${required}</td>
       <td>
@@ -110,32 +124,25 @@ function render() {
     bodyEl.appendChild(tr);
   });
 
-  // bind inputs
+  // Inputs
   bodyEl.querySelectorAll("input[type=number]").forEach((input) => {
     input.addEventListener("change", onPickedChange);
   });
 
-  // update badge
-  const overall = calcOverallStatus();
-  const statusObj = loadStatus();
+  // Update status badge
+  const overall = calcOverallStatus(picklistItems);
+  let bg = "#edf2f7";
+  let color = "#4a5568";
 
-  let badgeText = overall;
-  if (statusObj.fulfilled) {
-    badgeText = overall === "All Picked" ? "Fulfilled" : "Fulfilled (manual)";
-  }
-
-  statusBadgeEl.textContent = badgeText;
-
-  if (statusObj.fulfilled || overall === "All Picked") {
-    statusBadgeEl.style.background = "#c6f6d5";
-    statusBadgeEl.style.color = "#2f855a";
+  if (overall === "All Picked") {
+    bg = "#c6f6d5";
+    color = "#2f855a";
   } else if (overall === "Partial") {
-    statusBadgeEl.style.background = "#feebc8";
-    statusBadgeEl.style.color = "#dd6b20";
-  } else {
-    statusBadgeEl.style.background = "#edf2f7";
-    statusBadgeEl.style.color = "#4a5568";
+    bg = "#feebc8";
+    color = "#dd6b20";
   }
+
+  setStatusBadge(overall, bg, color);
 }
 
 function onPickedChange(e) {
@@ -156,8 +163,34 @@ function onPickedChange(e) {
   row.pickedQty = val;
   row.remaining = required - val;
 
-  saveState();
-  render();
+  // Save immediately
+  savePicklistToServer();
+}
+
+async function savePicklistToServer(statusOverride) {
+  if (!picklistId) return;
+
+  const status = statusOverride || calcOverallStatus(picklistItems);
+
+  try {
+    await fetch(`/picklist/${picklistId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: picklistItems,
+        status,
+      }),
+    });
+
+    // also mirror to localStorage for quick reload
+    localStorage.setItem("picklist_state", JSON.stringify(picklistItems));
+
+    // refresh view
+    renderTable();
+  } catch (err) {
+    console.error("Error saving picklist:", err);
+    // soft error only
+  }
 }
 
 markDoneBtn.addEventListener("click", () => {
@@ -179,9 +212,8 @@ markDoneBtn.addEventListener("click", () => {
     if (!ok) return;
   }
 
-  saveStatus({ fulfilled: true, fulfilledAt: Date.now() });
-  alert("Picklist marked as fulfilled.");
-  render();
+  savePicklistToServer("Fulfilled");
+  alert("Picklist marked as fulfilled and saved to server.");
 });
 
 resetBtn.addEventListener("click", () => {
@@ -194,11 +226,8 @@ resetBtn.addEventListener("click", () => {
     pickedQty: 0,
     remaining: Number(r.requiredQty) || 0,
   }));
-  saveState();
-  saveStatus({ fulfilled: false });
-  render();
+  savePicklistToServer("Pending");
 });
 
-// initial load
-loadState();
-render();
+// Initial load
+loadPicklistFromServer();
