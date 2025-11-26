@@ -633,8 +633,16 @@ app.post("/crop", async (req, res) => {
     zip.writeZip(zipPath);
 
     // -------- Respond with ZIP URL only --------
+    const picklistJson = pickItems.map((item) => ({
+      sku: item.sku,
+      qty: item.qty,
+      product: item.product || "",
+    }));
+
+    // -------- Respond with ZIP URL + picklist data --------
     res.json({
       zipUrl: `/outputs/${zipName}`,
+      picklist: picklistJson,
     });
   } catch (err) {
     console.error("Crop error", err);
