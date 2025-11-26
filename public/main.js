@@ -1,11 +1,8 @@
 let pdfDoc = null;
 let pageNum = 1;
 
-// ===== Picklist state (only for seeding localStorage) =====
-let picklistItemsSeed = []; // only used to seed localStorage from /crop
-
 // ✅ Fixed crop dimensions (your original dimensions)
-const USE_FIXED_DIMENSIONS = true; // keep true for auto mode
+const USE_FIXED_DIMENSIONS = true;  // keep true for auto mode
 
 const FIXED_LABEL_BOX = {
   x: 189.6,
@@ -499,30 +496,14 @@ processBtn.addEventListener("click", async () => {
       return;
     }
 
-    // 🔹 Seed picklist in localStorage & open new tab
-    if (Array.isArray(data.picklist) && data.picklist.length > 0) {
-      picklistItemsSeed = data.picklist.map((item) => ({
-        sku: item.sku,
-        product: item.product || "",
-        requiredQty: Number(item.qty) || 0,
-        pickedQty: 0,
-        remaining: Number(item.qty) || 0,
-      }));
-
-      // Save to localStorage so it survives refresh
-      localStorage.setItem(
-        "picklist_state",
-        JSON.stringify(picklistItemsSeed)
-      );
-      localStorage.setItem(
-        "picklist_status",
-        JSON.stringify({ fulfilled: false, createdAt: Date.now() })
-      );
-
-      logStatus("📋 Picklist saved. Opening picklist panel in new tab...");
+    if (data.picklistId) {
+      // store for picklist.html to use
+      localStorage.setItem("current_picklist_id", data.picklistId);
+      logStatus(`📋 Picklist created with ID: ${data.picklistId}`);
+      // optional: auto open picklist tab
       window.open("/picklist.html", "_blank");
     } else {
-      logStatus("ℹ️ No picklist data returned from server.");
+      logStatus("ℹ️ No picklistId returned from server.");
     }
 
     if (!data.zipUrl) {
