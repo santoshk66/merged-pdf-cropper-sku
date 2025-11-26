@@ -95,39 +95,6 @@
       color: #ffffff;
     }
 
-    #manualLoadRow {
-      margin-top: 8px;
-      margin-bottom: 4px;
-      display: none; /* shown when no ID found */
-    }
-
-    #manualPicklistForm {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
-      font-size: 0.85rem;
-    }
-
-    #manualPicklistForm label {
-      color: var(--text-muted);
-      margin-right: 4px;
-    }
-
-    #manualPicklistId {
-      flex: 1 1 180px;
-      min-width: 0;
-      padding: 5px 8px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      font-size: 0.85rem;
-    }
-
-    #manualPicklistForm button {
-      background: #3182ce;
-      color: #ffffff;
-    }
-
     #loadingMsg,
     #emptyMsg {
       padding: 10px 12px;
@@ -155,7 +122,7 @@
       overflow: auto;
       border: 1px solid var(--border);
       border-radius: 8px;
-      display: none; /* will be shown by JS */
+      display: none;
       background: #ffffff;
       -webkit-overflow-scrolling: touch;
     }
@@ -164,7 +131,7 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 0.8rem;
-      min-width: 700px; /* ensures horizontal scroll on narrow screens */
+      min-width: 700px;
     }
 
     thead {
@@ -209,9 +176,7 @@
       text-overflow: ellipsis;
     }
 
-    /* ---------- RESPONSIVE STYLES ---------- */
-
-    /* Tablet and below */
+    /* Tablet */
     @media (max-width: 900px) {
       #container {
         padding: 14px 12px;
@@ -231,7 +196,7 @@
       }
     }
 
-    /* Mobile: stack header & buttons */
+    /* Mobile */
     @media (max-width: 640px) {
       body {
         padding: 8px;
@@ -257,15 +222,6 @@
         text-align: center;
       }
 
-      #manualPicklistForm {
-        flex-direction: column;
-        align-items: stretch;
-      }
-
-      #manualPicklistForm button {
-        width: 100%;
-      }
-
       #tableWrapper {
         max-height: none;
         margin-top: 10px;
@@ -277,7 +233,7 @@
       }
     }
 
-    /* Extra-small: turn rows into cards */
+    /* Very small screens: card layout */
     @media (max-width: 520px) {
       thead {
         display: none;
@@ -347,16 +303,7 @@
       </div>
     </div>
 
-    <!-- Manual ID input (for other devices) -->
-    <div id="manualLoadRow">
-      <form id="manualPicklistForm">
-        <label for="manualPicklistId">Enter Picklist ID (e.g. pl_1764151668502):</label>
-        <input type="text" id="manualPicklistId" placeholder="pl_..." />
-        <button type="submit">Load Picklist</button>
-      </form>
-    </div>
-
-    <div id="loadingMsg">Loading picklist from server...</div>
+    <div id="loadingMsg">Loading latest picklist from server...</div>
     <div id="emptyMsg">
       No picklist found. Generate a picklist from the main Flipkart cropper app first.
     </div>
@@ -374,8 +321,7 @@
             <th>Status</th>
           </tr>
         </thead>
-        <tbody id="picklistBody">
-        </tbody>
+        <tbody id="picklistBody"></tbody>
       </table>
     </div>
   </div>
