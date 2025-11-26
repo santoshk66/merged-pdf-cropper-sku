@@ -682,6 +682,27 @@ app.get("/picklist/:id", async (req, res) => {
   }
 });
 
+// ✅ NEW: GET /picklist-latest -> return latest picklist by createdAt
+app.get("/picklist-latest", async (req, res) => {
+  try {
+    const snap = await db
+      .collection("picklists")
+      .orderBy("createdAt", "desc")
+      .limit(1)
+      .get();
+
+    if (snap.empty) {
+      return res.status(404).json({ error: "No picklists found" });
+    }
+
+    const doc = snap.docs[0];
+    res.json(doc.data()); // contains picklistId, items, status, etc.
+  } catch (err) {
+    console.error("Error fetching latest picklist:", err);
+    res.status(500).json({ error: "Failed to fetch latest picklist" });
+  }
+});
+
 // POST /picklist/:id  -> update items + status
 // body: { items: [...], status?: "pending"|"Partial"|"All Picked"|"Fulfilled"|... }
 app.post("/picklist/:id", async (req, res) => {
