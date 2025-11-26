@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Picklist Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f6f8fc;
+      margin: 0;
+      padding: 16px;
+      color: #2d3748;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 10px;
+    }
+
+    #container {
+      max-width: 900px;
+      margin: 0 auto;
+      background:#ffffff;
+      border-radius:10px;
+      padding:16px 18px;
+      box-shadow:0 4px 12px rgba(15,23,42,0.12);
+    }
+
+    .top-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:10px;
+      gap:10px;
+    }
+
+    #statusBadge {
+      font-size:0.8rem;
+      padding:4px 10px;
+      border-radius:999px;
+      background:#edf2f7;
+      color:#4a5568;
+    }
+
+    button {
+      cursor:pointer;
+      border:none;
+      border-radius:6px;
+      padding:6px 12px;
+      font-size:0.85rem;
+    }
+
+    #markDoneBtn {
+      background:#38a169;
+      color:#ffffff;
+    }
+
+    #resetBtn {
+      background:#e53e3e;
+      color:#ffffff;
+    }
+
+    #tableWrapper {
+      margin-top:12px;
+      max-height:400px;
+      overflow:auto;
+      border:1px solid #e2e8f0;
+      border-radius:8px;
+    }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      font-size:0.8rem;
+    }
+
+    thead {
+      position:sticky;
+      top:0;
+      background:#edf2f7;
+      z-index:1;
+    }
+
+    th, td {
+      padding:6px 8px;
+      border-bottom:1px solid #edf2f7;
+      text-align:left;
+    }
+
+    th:nth-child(4),
+    th:nth-child(5),
+    th:nth-child(6),
+    td:nth-child(4),
+    td:nth-child(5),
+    td:nth-child(6) {
+      text-align:right;
+    }
+
+    input[type="number"] {
+      width:80px;
+      padding:2px 4px;
+      border:1px solid #e2e8f0;
+      border-radius:4px;
+      text-align:right;
+      font-size:0.8rem;
+    }
+
+    #emptyMsg {
+      padding:12px;
+      background:#fefcbf;
+      border-radius:8px;
+      border:1px solid #faf089;
+      font-size:0.85rem;
+      margin-top:10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div class="top-row">
+      <div>
+        <h1>Live Picklist</h1>
+        <div id="statusBadge">Loading...</div>
+      </div>
+      <div>
+        <button id="resetBtn">♻ Reset Picklist</button>
+        <button id="markDoneBtn">✅ Mark Fulfilled</button>
+      </div>
+    </div>
+
+    <div id="tableWrapper" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>S.No</th>
+            <th>SKU</th>
+            <th>Product</th>
+            <th>Required</th>
+            <th>Picked</th>
+            <th>Remaining</th>
+            <
