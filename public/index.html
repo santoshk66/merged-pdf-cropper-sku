@@ -259,6 +259,37 @@
     <div class="log-title">Status</div>
   </div>
 
+  <div id="picklistPanel" style="display:none; margin-top: 20px;">
+    <h2>Live Picklist</h2>
+    <p style="font-size:0.85rem; color:#4a5568; margin-bottom:8px;">
+      Update how many units you have picked for each SKU. Remaining quantity updates automatically.
+    </p>
+
+    <button id="markPicklistDone"
+            style="background:#38a169; color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:0.85rem; cursor:pointer; margin-bottom:10px;">
+      ✅ Mark Picklist Fulfilled
+    </button>
+
+    <div style="overflow-x:auto; max-height:260px; border:1px solid #e2e8f0; border-radius:8px; background:#ffffff;">
+      <table id="picklistTable" style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+        <thead style="position:sticky; top:0; background:#edf2f7; z-index:1;">
+          <tr>
+            <th style="padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:left;">S.No</th>
+            <th style="padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:left;">SKU</th>
+            <th style="padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:left;">Product</th>
+            <th style="padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:right;">Required</th>
+            <th style="padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:right;">Picked</th>
+            <th style="padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:right;">Remaining</th>
+            <th style="padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:left;">Status</th>
+          </tr>
+        </thead>
+        <tbody id="picklistTableBody">
+          <!-- Rows injected via JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 🔹 Loading overlay -->
   <div id="loadingOverlay">
     <div id="loadingOverlayInner">
