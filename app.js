@@ -52,18 +52,11 @@ function wrapTextIntoLines(text, maxWidth, font, fontSize) {
       currentLine = testLine;
     }
   }
-
   if (currentLine) lines.push(currentLine);
   return lines;
 }
 
 // ----------------- /upload (PDF + full CSV) -----------------
-/**
- * POST /upload
- * Fields:
- *  - pdf        (label PDF)
- *  - skuMapping (full Flipkart CSV: Order Id, SKU, Quantity, Product...)
- */
 app.post(
   "/upload",
   upload.fields([
@@ -79,7 +72,6 @@ app.post(
         return res.status(400).json({ error: "Missing PDF file" });
       }
 
-      // Save PDF into uploads dir (by multer filename)
       const pdfFinalName = pdfFile.filename;
       const pdfFinalPath = path.join(UPLOAD_DIR, pdfFinalName);
       await fsPromises.writeFile(
@@ -88,7 +80,6 @@ app.post(
       );
 
       let mappingFilename = null;
-
       if (csvFile) {
         const csvFinalName = csvFile.filename;
         const csvFinalPath = path.join(UPLOAD_DIR, csvFinalName);
@@ -111,12 +102,6 @@ app.post(
 );
 
 // ----------------- /upload-sku-db (SKU DB CSV -> Firestore) -----------------
-/**
- * POST /upload-sku-db
- * Field:
- *  - skuDb (CSV with columns: old sku,new sku)
- * Collection in Firestore: skuCorrections
- */
 app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
   try {
     const file = req.file;
@@ -139,7 +124,6 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
 
     for (const [oldSku, newSku] of entries) {
       const safeDocId = oldSku.replace(/\//g, "_");
-
       const docRef = collectionRef.doc(safeDocId);
       batch.set(
         docRef,
@@ -166,18 +150,6 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
 });
 
 // ----------------- /crop (main processing) -----------------
-/**
- * POST /crop
- * JSON body:
- *  {
- *    pdfFilename,
- *    mappingFilename,
- *    labelBox: { x, y, width, height },
- *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD...", ... ],
- *    removeDuplicates: boolean
- *  }
- */
 app.post("/crop", async (req, res) => {
   try {
     const {
@@ -225,32 +197,37 @@ app.post("/crop", async (req, res) => {
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
     const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
-
     const pageCount = inputPdf.getPageCount();
 
-    // 1) Order Id → CSV row map
-    // 1) Order Id → CSV row map (each orderId -> ARRAY of rows)
+    // 1) Order Id → CSV rows map (orderId -> array of rows)
     let orderMap = {};
     if (mappingFilename) {
       const csvPath = path.join(UPLOAD_DIR, mappingFilename);
       const csvBuffer = await fsPromises.readFile(csvPath);
-      orderMap = buildOrderMapFromCSV(csvBuffer); // now: { orderId: [ row1, row2, ... ] }
+      orderMap = buildOrderMapFromCSV(csvBuffer);
     }
 
-    // 3) Picklist aggregation: finalSku -> { sku, qty, product }
+    // 2) SKU corrections from Firestore
+    let skuCorrectionMap = {};
+    const snapshot = await db.collection("skuCorrections").get();
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.oldSku && data.newSku) {
+        skuCorrectionMap[data.oldSku] = data.newSku;
+      }
+    });
+
+    // 3) Picklist aggregation
     const picklistMap = {};
 
-    // ---- Build jobs array, with optional duplicate removal ----
     const jobs = [];
     const seenOrderIds = new Set();
-
-    // NEW: keep track of how many rows we already used for each orderId
-    const orderUsageCount = {};
+    const orderUsageCount = {}; // NEW: how many rows used per orderId
 
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i];
 
-      // If user chose to remove duplicates, skip repeated orderIds completely
+      // Optional: remove duplicate orders totally
       if (removeDuplicates && orderId) {
         if (seenOrderIds.has(orderId)) {
           continue;
@@ -258,20 +235,16 @@ app.post("/crop", async (req, res) => {
         seenOrderIds.add(orderId);
       }
 
-      // 🔑 Pick the correct CSV row for this label page
+      // ---------- choose correct CSV row for this page ----------
       let row = {};
       if (orderId && orderMap[orderId] && orderMap[orderId].length > 0) {
         const used = orderUsageCount[orderId] || 0;
-
-        // If there are more pages than rows, reuse the last row
         const indexToUse = Math.min(used, orderMap[orderId].length - 1);
         row = orderMap[orderId][indexToUse];
-
         orderUsageCount[orderId] = used + 1;
       }
 
       const rawSku = (row["SKU"] || "").toString().trim();
-
       let finalSku = rawSku;
       if (rawSku && skuCorrectionMap[rawSku]) {
         finalSku = skuCorrectionMap[rawSku];
@@ -319,7 +292,7 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // ---- Sort jobs by SKU so labels are in sequence ----
+    // ---- Sort jobs by SKU so labels are in SKU groups ----
     const withSku = jobs.filter((j) => j.finalSku);
     const withoutSku = jobs.filter((j) => !j.finalSku);
 
@@ -351,7 +324,6 @@ app.post("/crop", async (req, res) => {
     async function addCroppedPagesForJob(targetDoc, font, job) {
       const [page] = await targetDoc.copyPages(inputPdf, [job.pageIndex]);
       const { height } = page.getSize();
-
       const embedded = await targetDoc.embedPage(page);
 
       // LABEL page
@@ -384,7 +356,7 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // ---- MAIN LOOP over sortedJobs ----
+    // ---- main loop for fullDoc / skuDocs / smallDoc ----
     let lastGroupKey = null;
 
     for (const job of sortedJobs) {
@@ -399,7 +371,6 @@ app.post("/crop", async (req, res) => {
 
         const headerFontSize = 12;
         const headerLineHeight = headerFontSize * 1.3;
-
         const maxHeaderWidth = hpw - 40;
 
         const headerLines = wrapTextIntoLines(
@@ -418,7 +389,6 @@ app.post("/crop", async (req, res) => {
             headerFontSize
           );
           const headerX = (hpw - lineWidth) / 2;
-
           headerPage.drawText(line, {
             x: headerX,
             y: headerY,
@@ -426,14 +396,12 @@ app.post("/crop", async (req, res) => {
             size: headerFontSize,
             color: rgb(0, 0, 0),
           });
-
           headerY -= headerLineHeight;
         }
 
         lastGroupKey = groupKey;
       }
 
-      // Full combined
       await addCroppedPagesForJob(fullDoc, fullFont, job);
 
       const sku = job.finalSku;
@@ -451,7 +419,7 @@ app.post("/crop", async (req, res) => {
       }
     }
 
-    // -------- Build Picklist PDF (with wrapped product names) --------
+    // -------- Build Picklist PDF --------
     const picklistDoc = await PDFDocument.create();
     const pickFont = await picklistDoc.embedFont(StandardFonts.Helvetica);
 
@@ -494,7 +462,6 @@ app.post("/crop", async (req, res) => {
     drawHeaders(pickPage);
     y -= lineHeight;
 
-    // ---- Picklist items sorted by qty DESC (big → small) ----
     const pickItemsArray = Object.values(picklistMap);
     const pickItemsSorted = pickItemsArray.sort((a, b) => {
       const diff = (b.qty || 0) - (a.qty || 0);
@@ -549,14 +516,12 @@ app.post("/crop", async (req, res) => {
 
       for (let li = 1; li < productLines.length; li++) {
         y -= lineHeight;
-
         if (y < 40) {
           pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
           y = pageHeight - 50;
           drawHeaders(pickPage);
           y -= lineHeight;
         }
-
         pickPage.drawText(productLines[li], {
           x: colProductX,
           y,
@@ -569,7 +534,7 @@ app.post("/crop", async (req, res) => {
       index++;
     }
 
-    // -------- Create ZIP with all PDFs in memory --------
+    // -------- Create ZIP --------
     const zip = new AdmZip();
 
     const fullBytes = await fullDoc.save();
@@ -601,7 +566,7 @@ app.post("/crop", async (req, res) => {
     const zipPath = path.join(OUTPUT_DIR, zipName);
     zip.writeZip(zipPath);
 
-    // -------- Build picklist JSON (qty DESC) --------
+    // -------- picklist JSON & Firestore --------
     const picklistJson = pickItemsSorted.map((item) => ({
       sku: item.sku,
       requiredQty: item.qty,
@@ -619,7 +584,6 @@ app.post("/crop", async (req, res) => {
     const now = Date.now();
     const picklistId = `pl_${now}`;
 
-    // Save picklist in Firestore (for dashboard)
     await db.collection("picklists").doc(picklistId).set({
       picklistId,
       pdfFilename,
@@ -632,7 +596,6 @@ app.post("/crop", async (req, res) => {
       totalSkus,
     });
 
-    // -------- Respond --------
     res.json({
       zipUrl: `/outputs/${zipName}`,
       picklist: picklistJson,
@@ -646,9 +609,7 @@ app.post("/crop", async (req, res) => {
   }
 });
 
-// ----------------- Picklist APIs (Firestore-backed) -----------------
-
-// Get a single picklist by id
+// ----------------- Picklist APIs -----------------
 app.get("/picklist/:id", async (req, res) => {
   try {
     const doc = await db.collection("picklists").doc(req.params.id).get();
@@ -662,7 +623,6 @@ app.get("/picklist/:id", async (req, res) => {
   }
 });
 
-// Get latest (most recent) picklist – kept for backward compatibility
 app.get("/picklist-latest", async (req, res) => {
   try {
     const snap = await db
@@ -683,7 +643,6 @@ app.get("/picklist-latest", async (req, res) => {
   }
 });
 
-// ✅ NEW: list picklists by createdAt range (for date filters)
 app.get("/picklists", async (req, res) => {
   try {
     const from = req.query.from ? Number(req.query.from) : null;
@@ -691,12 +650,8 @@ app.get("/picklists", async (req, res) => {
 
     let q = db.collection("picklists").orderBy("createdAt", "desc");
 
-    if (from) {
-      q = q.where("createdAt", ">=", from);
-    }
-    if (to) {
-      q = q.where("createdAt", "<=", to);
-    }
+    if (from) q = q.where("createdAt", ">=", from);
+    if (to) q = q.where("createdAt", "<=", to);
 
     const snap = await q.get();
     const list = snap.docs.map((d) => d.data());
@@ -708,7 +663,6 @@ app.get("/picklists", async (req, res) => {
   }
 });
 
-// Update picklist items + status (Fulfilled, Pending, etc.)
 app.post("/picklist/:id", async (req, res) => {
   try {
     const { items, status } = req.body;
