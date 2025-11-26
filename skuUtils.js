@@ -2,25 +2,10 @@
 import { parse } from "csv-parse/sync";
 
 /**
- * Helper: read a field using multiple possible header names.
- */
-function getField(record, possibleNames) {
-  for (const name of possibleNames) {
-    if (record[name] !== undefined && record[name] !== null) {
-      return record[name];
-    }
-  }
-  return "";
-}
-
-/**
- * Flipkart Order CSV
+ * Flipkart Order CSV:
+ * Build map: Order Id -> full row
  *
- * Build map:
- *   Order Id -> ARRAY of rows
- *
- * So if one order has 2 SKUs, we will keep both rows:
- *   orderMap["OD123"] = [ row1, row2 ]
+ * Expected header: "Order Id"
  */
 export function buildOrderMapFromCSV(buffer) {
   const records = parse(buffer, {
@@ -32,40 +17,49 @@ export function buildOrderMapFromCSV(buffer) {
   const orderMap = {};
 
   for (const record of records) {
-    const idRaw = getField(record, [
-      "Order Id",
-      "ORDER ID",
-      "order id",
-      "OrderID",
-      "order_id",
-    ]);
-
-    const orderId = idRaw?.toString().trim();
-    if (!orderId) continue;
-
-    if (!orderMap[orderId]) {
-      orderMap[orderId] = [];
+    const orderId = record["Order Id"]?.toString().trim();
+    if (orderId) {
+      orderMap[orderId] = record;
     }
-    orderMap[orderId].push(record);
   }
 
   return orderMap;
 }
 
 /**
- * SKU DB CSV:
- *   old sku,new sku
+ * SKU Correction CSV (old sku,new sku):
  *
- * Build map: oldSku -> newSku
+ * Headers (case-insensitive):
+ *   "old sku"
+ *   "new sku"
+ *
+ * Example:
+ *   old sku,new sku
+ *   A-GrouK8Mic,A-GrouK8Mic-NEW
+ *
+ * Returns: { [oldSku]: newSku }
  */
 export function buildSkuCorrectionMapFromCSV(buffer) {
   const records = parse(buffer, {
     columns: true,
     skip_empty_lines: true,
+    relax_column_count: true,
+    relax_column_count_less: true,
     trim: true,
   });
 
   const skuMap = {};
+
+  const getField = (record, patterns) => {
+    const keys = Object.keys(record);
+    for (const key of keys) {
+      const normalizedKey = key.toLowerCase().trim();
+      if (patterns.includes(normalizedKey)) {
+        return record[key];
+      }
+    }
+    return "";
+  };
 
   for (const record of records) {
     const oldSkuRaw = getField(record, ["old sku", "old_sku", "oldsku"]);
