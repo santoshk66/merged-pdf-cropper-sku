@@ -10,6 +10,11 @@ const picklistIdLabelEl = document.getElementById("picklistIdLabel");
 const markDoneBtn = document.getElementById("markDoneBtn");
 const resetBtn = document.getElementById("resetBtn");
 
+// manual id input
+const manualRowEl = document.getElementById("manualLoadRow");
+const manualFormEl = document.getElementById("manualPicklistForm");
+const manualInputEl = document.getElementById("manualPicklistId");
+
 function setStatusBadge(text, bg, color) {
   statusBadgeEl.textContent = text;
   statusBadgeEl.style.background = bg;
@@ -31,16 +36,35 @@ function calcOverallStatus(items) {
   return pickedSome ? "Partial" : "Pending";
 }
 
-async function loadPicklistFromServer() {
-  picklistId = localStorage.getItem("current_picklist_id");
+// Get picklistId from URL ?picklistId= / ?id=, then localStorage
+function resolvePicklistId() {
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get("picklistId") || params.get("id");
+  if (fromQuery) {
+    localStorage.setItem("current_picklist_id", fromQuery);
+    return fromQuery;
+  }
+  const stored = localStorage.getItem("current_picklist_id");
+  if (stored) return stored;
+  return null;
+}
+
+async function loadPicklistFromServer(idOverride) {
+  picklistId = idOverride || resolvePicklistId();
+
   if (!picklistId) {
+    // show manual input UI
     loadingMsgEl.style.display = "none";
     emptyMsgEl.style.display = "block";
+    emptyMsgEl.textContent =
+      "No picklist found in this browser. Enter a Picklist ID above.";
+    manualRowEl.style.display = "block";
     setStatusBadge("No picklist ID in browser", "#fed7d7", "#c53030");
     return;
   }
 
   picklistIdLabelEl.textContent = `Picklist ID: ${picklistId}`;
+  manualRowEl.style.display = "block"; // keep visible so user can change ID if needed
 
   try {
     const res = await fetch(`/picklist/${picklistId}`);
@@ -63,6 +87,8 @@ async function loadPicklistFromServer() {
     if (!picklistItems.length) {
       loadingMsgEl.style.display = "none";
       emptyMsgEl.style.display = "block";
+      emptyMsgEl.textContent = "This picklist has no items.";
+      wrapperEl.style.display = "none";
       setStatusBadge("Empty picklist", "#fed7d7", "#c53030");
       return;
     }
@@ -76,7 +102,8 @@ async function loadPicklistFromServer() {
     loadingMsgEl.style.display = "none";
     emptyMsgEl.style.display = "block";
     emptyMsgEl.textContent =
-      "Failed to load picklist from server. Please try again.";
+      "Failed to load picklist from server. Check the ID or try again.";
+    wrapperEl.style.display = "none";
     setStatusBadge("Error loading picklist", "#fed7d7", "#c53030");
   }
 }
@@ -103,13 +130,13 @@ function renderTable() {
     }
 
     tr.innerHTML = `
-      <td>${index + 1}</td>
-      <td style="font-weight:500;">${row.sku}</td>
-      <td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${row.product}">
+      <td data-label="S.No">${index + 1}</td>
+      <td data-label="SKU" style="font-weight:500;">${row.sku}</td>
+      <td data-label="Product" style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${row.product}">
         ${row.product}
       </td>
-      <td>${required}</td>
-      <td>
+      <td data-label="Required">${required}</td>
+      <td data-label="Picked">
         <input
           type="number"
           min="0"
@@ -117,8 +144,8 @@ function renderTable() {
           value="${picked}"
         />
       </td>
-      <td>${remaining}</td>
-      <td style="color:${color}; font-weight:500;">${status}</td>
+      <td data-label="Remaining">${remaining}</td>
+      <td data-label="Status" style="color:${color}; font-weight:500;">${status}</td>
     `;
 
     bodyEl.appendChild(tr);
@@ -182,14 +209,12 @@ async function savePicklistToServer(statusOverride) {
       }),
     });
 
-    // also mirror to localStorage for quick reload
+    // mirror to localStorage for quick reload on this device
     localStorage.setItem("picklist_state", JSON.stringify(picklistItems));
 
-    // refresh view
     renderTable();
   } catch (err) {
     console.error("Error saving picklist:", err);
-    // soft error only
   }
 }
 
@@ -228,6 +253,25 @@ resetBtn.addEventListener("click", () => {
   }));
   savePicklistToServer("Pending");
 });
+
+// manual ID form
+if (manualFormEl) {
+  manualFormEl.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const val = (manualInputEl.value || "").trim();
+    if (!val) return;
+
+    localStorage.setItem("current_picklist_id", val);
+
+    // reset UI then load
+    loadingMsgEl.style.display = "block";
+    loadingMsgEl.textContent = "Loading picklist from server...";
+    emptyMsgEl.style.display = "none";
+    wrapperEl.style.display = "none";
+
+    loadPicklistFromServer(val);
+  });
+}
 
 // Initial load
 loadPicklistFromServer();
