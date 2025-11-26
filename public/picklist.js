@@ -10,11 +10,6 @@ const picklistIdLabelEl = document.getElementById("picklistIdLabel");
 const markDoneBtn = document.getElementById("markDoneBtn");
 const resetBtn = document.getElementById("resetBtn");
 
-// manual id input
-const manualRowEl = document.getElementById("manualLoadRow");
-const manualFormEl = document.getElementById("manualPicklistForm");
-const manualInputEl = document.getElementById("manualPicklistId");
-
 function setStatusBadge(text, bg, color) {
   statusBadgeEl.textContent = text;
   statusBadgeEl.style.background = bg;
@@ -36,42 +31,19 @@ function calcOverallStatus(items) {
   return pickedSome ? "Partial" : "Pending";
 }
 
-// Get picklistId from URL ?picklistId= / ?id=, then localStorage
-function resolvePicklistId() {
-  const params = new URLSearchParams(window.location.search);
-  const fromQuery = params.get("picklistId") || params.get("id");
-  if (fromQuery) {
-    localStorage.setItem("current_picklist_id", fromQuery);
-    return fromQuery;
-  }
-  const stored = localStorage.getItem("current_picklist_id");
-  if (stored) return stored;
-  return null;
-}
-
-async function loadPicklistFromServer(idOverride) {
-  picklistId = idOverride || resolvePicklistId();
-
-  if (!picklistId) {
-    // show manual input UI
-    loadingMsgEl.style.display = "none";
-    emptyMsgEl.style.display = "block";
-    emptyMsgEl.textContent =
-      "No picklist found in this browser. Enter a Picklist ID above.";
-    manualRowEl.style.display = "block";
-    setStatusBadge("No picklist ID in browser", "#fed7d7", "#c53030");
-    return;
-  }
-
-  picklistIdLabelEl.textContent = `Picklist ID: ${picklistId}`;
-  manualRowEl.style.display = "block"; // keep visible so user can change ID if needed
-
+// ✅ Always load latest picklist from server
+async function loadLatestPicklist() {
   try {
-    const res = await fetch(`/picklist/${picklistId}`);
+    const res = await fetch("/picklist-latest");
     if (!res.ok) {
       throw new Error("Server returned " + res.status);
     }
     const data = await res.json();
+
+    picklistId = data.picklistId || null;
+    picklistIdLabelEl.textContent = picklistId
+      ? `Picklist ID: ${picklistId}`
+      : "Picklist: Latest";
 
     picklistItems = (data.items || []).map((row) => ({
       sku: row.sku,
@@ -98,11 +70,11 @@ async function loadPicklistFromServer(idOverride) {
     wrapperEl.style.display = "block";
     renderTable();
   } catch (err) {
-    console.error("Error loading picklist:", err);
+    console.error("Error loading latest picklist:", err);
     loadingMsgEl.style.display = "none";
     emptyMsgEl.style.display = "block";
     emptyMsgEl.textContent =
-      "Failed to load picklist from server. Check the ID or try again.";
+      "Failed to load latest picklist from server. Generate one from the cropper app first.";
     wrapperEl.style.display = "none";
     setStatusBadge("Error loading picklist", "#fed7d7", "#c53030");
   }
@@ -151,12 +123,10 @@ function renderTable() {
     bodyEl.appendChild(tr);
   });
 
-  // Inputs
   bodyEl.querySelectorAll("input[type=number]").forEach((input) => {
     input.addEventListener("change", onPickedChange);
   });
 
-  // Update status badge
   const overall = calcOverallStatus(picklistItems);
   let bg = "#edf2f7";
   let color = "#4a5568";
@@ -190,12 +160,11 @@ function onPickedChange(e) {
   row.pickedQty = val;
   row.remaining = required - val;
 
-  // Save immediately
   savePicklistToServer();
 }
 
 async function savePicklistToServer(statusOverride) {
-  if (!picklistId) return;
+  if (!picklistId) return; // should always exist if latest loaded ok
 
   const status = statusOverride || calcOverallStatus(picklistItems);
 
@@ -208,9 +177,6 @@ async function savePicklistToServer(statusOverride) {
         status,
       }),
     });
-
-    // mirror to localStorage for quick reload on this device
-    localStorage.setItem("picklist_state", JSON.stringify(picklistItems));
 
     renderTable();
   } catch (err) {
@@ -254,24 +220,5 @@ resetBtn.addEventListener("click", () => {
   savePicklistToServer("Pending");
 });
 
-// manual ID form
-if (manualFormEl) {
-  manualFormEl.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const val = (manualInputEl.value || "").trim();
-    if (!val) return;
-
-    localStorage.setItem("current_picklist_id", val);
-
-    // reset UI then load
-    loadingMsgEl.style.display = "block";
-    loadingMsgEl.textContent = "Loading picklist from server...";
-    emptyMsgEl.style.display = "none";
-    wrapperEl.style.display = "none";
-
-    loadPicklistFromServer(val);
-  });
-}
-
 // Initial load
-loadPicklistFromServer();
+loadLatestPicklist();
