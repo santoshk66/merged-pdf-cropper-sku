@@ -2,7 +2,7 @@
 import { parse } from "csv-parse/sync";
 
 /**
- * Small helper to read a field using multiple possible header names.
+ * Helper: read a field using multiple possible header names.
  */
 function getField(record, possibleNames) {
   for (const name of possibleNames) {
@@ -14,10 +14,13 @@ function getField(record, possibleNames) {
 }
 
 /**
- * Flipkart Order CSV:
- * Build map: Order Id -> ARRAY of rows
+ * Flipkart Order CSV
  *
- * This supports cases where the SAME order id has multiple SKUs / lines.
+ * Build map:
+ *   Order Id -> ARRAY of rows
+ *
+ * So if one order has 2 SKUs, we will keep both rows:
+ *   orderMap["OD123"] = [ row1, row2 ]
  */
 export function buildOrderMapFromCSV(buffer) {
   const records = parse(buffer, {
@@ -43,7 +46,7 @@ export function buildOrderMapFromCSV(buffer) {
     if (!orderMap[orderId]) {
       orderMap[orderId] = [];
     }
-    orderMap[orderId].push(record); // push all rows for this order id
+    orderMap[orderId].push(record);
   }
 
   return orderMap;
@@ -51,8 +54,9 @@ export function buildOrderMapFromCSV(buffer) {
 
 /**
  * SKU DB CSV:
+ *   old sku,new sku
+ *
  * Build map: oldSku -> newSku
- * Expected headers like: old sku,new sku  (case-insensitive)
  */
 export function buildSkuCorrectionMapFromCSV(buffer) {
   const records = parse(buffer, {
