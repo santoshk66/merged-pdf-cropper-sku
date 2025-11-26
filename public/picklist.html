@@ -13,11 +13,6 @@
       color: #2d3748;
     }
 
-    h1 {
-      font-size: 1.4rem;
-      margin-bottom: 10px;
-    }
-
     #container {
       max-width: 900px;
       margin: 0 auto;
@@ -25,6 +20,11 @@
       border-radius:10px;
       padding:16px 18px;
       box-shadow:0 4px 12px rgba(15,23,42,0.12);
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 4px;
     }
 
     .top-row {
@@ -43,6 +43,11 @@
       color:#4a5568;
     }
 
+    #picklistIdLabel {
+      font-size:0.75rem;
+      color:#718096;
+    }
+
     button {
       cursor:pointer;
       border:none;
@@ -54,6 +59,7 @@
     #markDoneBtn {
       background:#38a169;
       color:#ffffff;
+      margin-left:4px;
     }
 
     #resetBtn {
@@ -67,6 +73,7 @@
       overflow:auto;
       border:1px solid #e2e8f0;
       border-radius:8px;
+      display:none;
     }
 
     table {
@@ -113,6 +120,16 @@
       border:1px solid #faf089;
       font-size:0.85rem;
       margin-top:10px;
+      display:none;
+    }
+
+    #loadingMsg {
+      padding:12px;
+      background:#ebf8ff;
+      border-radius:8px;
+      border:1px solid #bee3f8;
+      font-size:0.85rem;
+      margin-top:10px;
     }
   </style>
 </head>
@@ -121,6 +138,7 @@
     <div class="top-row">
       <div>
         <h1>Live Picklist</h1>
+        <div id="picklistIdLabel"></div>
         <div id="statusBadge">Loading...</div>
       </div>
       <div>
@@ -129,7 +147,10 @@
       </div>
     </div>
 
-    <div id="tableWrapper" style="display:none;">
+    <div id="loadingMsg">Loading picklist from server...</div>
+    <div id="emptyMsg">No picklist found. Generate picklist from the main Flipkart cropper app first.</div>
+
+    <div id="tableWrapper">
       <table>
         <thead>
           <tr>
@@ -139,4 +160,15 @@
             <th>Required</th>
             <th>Picked</th>
             <th>Remaining</th>
-            <
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="picklistBody">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="picklist.js"></script>
+</body>
+</html>
