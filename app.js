@@ -34,7 +34,6 @@ app.use(express.json({ limit: "10mb" }));
 // Serve frontend & outputs
 app.use(express.static("public"));
 app.use("/outputs", express.static(OUTPUT_DIR));
-app.use("/uploads", express.static(UPLOAD_DIR)); // New
 
 // ----------------- Helper: wrap product text for picklist & headers -----------------
 function wrapTextIntoLines(text, maxWidth, font, fontSize) {
@@ -58,53 +57,38 @@ function wrapTextIntoLines(text, maxWidth, font, fontSize) {
   return lines;
 }
 
-// ----------------- /upload (MULTI PDF + full CSV) -----------------
+// ----------------- /upload (PDF + full CSV) -----------------
 /**
  * POST /upload
  * Fields:
- *  - pdfs[]      (one or more label PDFs, 70 labels each, etc.)
- *  - skuMapping  (full Flipkart CSV: Order Id, SKU, Quantity, Product...)
- *
- * Behaviour:
- *  - All pdfs[] are merged (in order) into a single PDF
- *  - Merged PDF is saved in uploads/ and its filename is returned
+ *  - pdf        (label PDF)
+ *  - skuMapping (full Flipkart CSV: Order Id, SKU, Quantity, Product...)
  */
 app.post(
   "/upload",
   upload.fields([
-    { name: "pdfs", maxCount: 50 },        // 👈 multiple PDFs now
+    { name: "pdf", maxCount: 1 },
     { name: "skuMapping", maxCount: 1 },
   ]),
   async (req, res) => {
     try {
-      const pdfFiles = req.files["pdfs"];
+      const pdfFile = req.files["pdf"]?.[0];
       const csvFile = req.files["skuMapping"]?.[0];
 
-      if (!pdfFiles || pdfFiles.length === 0) {
-        return res.status(400).json({ error: "Please upload at least one PDF file." });
+      if (!pdfFile) {
+        return res.status(400).json({ error: "Missing PDF file" });
       }
 
-      // ---- 1) Merge all uploaded PDFs into a single PDF ----
-      const mergedPdf = await PDFDocument.create();
+      // Save PDF into uploads dir (by multer filename)
+      const pdfFinalName = pdfFile.filename;
+      const pdfFinalPath = path.join(UPLOAD_DIR, pdfFinalName);
+      await fsPromises.writeFile(
+        pdfFinalPath,
+        await fsPromises.readFile(pdfFile.path)
+      );
 
-      for (const file of pdfFiles) {
-        const bytes = await fsPromises.readFile(file.path); // multer saved to uploads/
-        const tempPdf = await PDFDocument.load(bytes);
-
-        const pageCount = tempPdf.getPageCount();
-        const indices = Array.from({ length: pageCount }, (_, i) => i);
-
-        const copiedPages = await mergedPdf.copyPages(tempPdf, indices);
-        copiedPages.forEach((p) => mergedPdf.addPage(p));
-      }
-
-      const mergedBytes = await mergedPdf.save();
-      const mergedName = `merged-${Date.now()}.pdf`;
-      const mergedPath = path.join(UPLOAD_DIR, mergedName);
-      await fsPromises.writeFile(mergedPath, mergedBytes);
-
-      // ---- 2) Save CSV mapping if provided ----
       let mappingFilename = null;
+
       if (csvFile) {
         const csvFinalName = csvFile.filename;
         const csvFinalPath = path.join(UPLOAD_DIR, csvFinalName);
@@ -115,9 +99,8 @@ app.post(
         mappingFilename = csvFinalName;
       }
 
-      // ---- 3) Return merged pdf filename ----
       res.json({
-        pdfFilename: mergedName,   // 👈 this is the merged PDF
+        pdfFilename: pdfFinalName,
         mappingFilename,
       });
     } catch (err) {
