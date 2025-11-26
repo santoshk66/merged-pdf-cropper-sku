@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Picklist Panel</title>
+  <title>Picklist Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -14,6 +14,7 @@
       --shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
       --accent: #38a169;
       --danger: #e53e3e;
+      --primary: #3182ce;
     }
 
     * {
@@ -29,7 +30,7 @@
     }
 
     #container {
-      max-width: 1100px;
+      max-width: 1200px;
       width: 100%;
       margin: 0 auto;
       background: var(--card-bg);
@@ -40,16 +41,153 @@
 
     h1 {
       font-size: 1.3rem;
-      margin: 0 0 4px;
+      margin: 0 0 8px;
     }
 
-    .top-row {
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    /* Filters */
+    .filters-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+    }
+
+    .filter-group label {
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    select {
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+      background: #f9fafb;
+    }
+
+    /* Layout */
+    .layout {
+      display: flex;
+      gap: 12px;
+    }
+
+    #sidebar {
+      width: 280px;
+      min-width: 0;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      max-height: 500px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    #picklistList {
+      padding: 6px;
+    }
+
+    .picklist-card {
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 6px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .picklist-card:hover {
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+      border-color: #cbd5e0;
+    }
+
+    .picklist-card.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 1px rgba(49, 130, 206, 0.5);
+      background: #ebf8ff;
+    }
+
+    .pl-row-1 {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
-      gap: 10px;
+      margin-bottom: 2px;
+    }
+
+    .pl-time {
+      font-weight: 500;
+      color: #2d3748;
+    }
+
+    .pl-status-badge {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #edf2f7;
+      color: #4a5568;
+      white-space: nowrap;
+    }
+
+    .pl-status-open {
+      background: #e6fffa;
+      color: #2c7a7b;
+    }
+
+    .pl-status-fulfilled {
+      background: #c6f6d5;
+      color: #2f855a;
+    }
+
+    .pl-row-2 {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+      word-break: break-all;
+    }
+
+    .pl-row-3 {
+      font-size: 0.74rem;
+      color: #4a5568;
+    }
+
+    .empty-list {
+      padding: 10px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    /* Detail section */
+    #detail {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    #picklistIdLabel {
+      font-size: 0.8rem;
+      color: var(--text-muted);
     }
 
     #statusBadge {
@@ -59,12 +197,7 @@
       background: #edf2f7;
       color: #4a5568;
       display: inline-block;
-      margin-top: 4px;
-    }
-
-    #picklistIdLabel {
-      font-size: 0.75rem;
-      color: var(--text-muted);
+      margin-top: 3px;
     }
 
     .btn-group {
@@ -100,7 +233,7 @@
       padding: 10px 12px;
       border-radius: 8px;
       font-size: 0.85rem;
-      margin-top: 10px;
+      margin-top: 8px;
     }
 
     #loadingMsg {
@@ -117,7 +250,7 @@
     }
 
     #tableWrapper {
-      margin-top: 12px;
+      margin-top: 10px;
       max-height: 420px;
       overflow: auto;
       border: 1px solid var(--border);
@@ -183,12 +316,13 @@
         border-radius: 8px;
       }
 
-      .top-row {
-        align-items: flex-start;
+      .layout {
+        flex-direction: column;
       }
 
-      h1 {
-        font-size: 1.15rem;
+      #sidebar {
+        width: 100%;
+        max-height: 220px;
       }
 
       table {
@@ -208,13 +342,23 @@
         box-shadow: none;
       }
 
-      .top-row {
+      .filters-row {
         flex-direction: column;
-        align-items: stretch;
+        align-items: flex-start;
+      }
+
+      .layout {
+        gap: 10px;
+      }
+
+      .detail-header {
+        flex-direction: column;
+        align-items: flex-start;
       }
 
       .btn-group {
-        justify-content: flex-start;
+        width: 100%;
+        justify-content: stretch;
       }
 
       button {
@@ -224,7 +368,7 @@
 
       #tableWrapper {
         max-height: none;
-        margin-top: 10px;
+        margin-top: 8px;
       }
 
       table {
@@ -233,7 +377,7 @@
       }
     }
 
-    /* Very small screens: card layout */
+    /* Very small screens: card layout for table */
     @media (max-width: 520px) {
       thead {
         display: none;
@@ -290,39 +434,74 @@
 </head>
 <body>
   <div id="container">
-    <div class="top-row">
-      <div>
-        <h1>Live Picklist</h1>
-        <div id="picklistIdLabel"></div>
-        <div id="statusBadge">Loading...</div>
+    <h1>Live Picklists</h1>
+    <div class="subtitle">
+      View all picklists by date and status. Items inside each picklist are sorted by required quantity (big → small).
+    </div>
+
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="dateFilter">Date</label>
+        <select id="dateFilter">
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="last7">Last 7 days</option>
+          <option value="thisMonth">This month</option>
+          <option value="all">All</option>
+        </select>
       </div>
 
-      <div class="btn-group">
-        <button id="resetBtn">♻ Reset Picklist</button>
-        <button id="markDoneBtn">✅ Mark Fulfilled</button>
+      <div class="filter-group">
+        <label for="statusFilter">Status</label>
+        <select id="statusFilter">
+          <option value="all">All</option>
+          <option value="open">Open (Pending / Partial)</option>
+          <option value="fulfilled">Fulfilled</option>
+        </select>
       </div>
     </div>
 
-    <div id="loadingMsg">Loading latest picklist from server...</div>
-    <div id="emptyMsg">
-      No picklist found. Generate a picklist from the main Flipkart cropper app first.
-    </div>
+    <div class="layout">
+      <aside id="sidebar">
+        <div id="picklistList">
+          <!-- picklist cards injected here -->
+        </div>
+      </aside>
 
-    <div id="tableWrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>S.No</th>
-            <th>SKU</th>
-            <th>Product</th>
-            <th>Required</th>
-            <th>Picked</th>
-            <th>Remaining</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="picklistBody"></tbody>
-      </table>
+      <section id="detail">
+        <div class="detail-header">
+          <div>
+            <div id="picklistIdLabel">No picklist selected.</div>
+            <div id="statusBadge">–</div>
+          </div>
+          <div class="btn-group">
+            <button id="resetBtn">♻ Reset Picklist</button>
+            <button id="markDoneBtn">✅ Mark Fulfilled</button>
+          </div>
+        </div>
+
+        <div id="loadingMsg">Loading picklists...</div>
+        <div id="emptyMsg">
+          No picklists found. Generate a picklist from the main Flipkart cropper app first.
+        </div>
+
+        <div id="tableWrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>S.No</th>
+                <th>SKU</th>
+                <th>Product</th>
+                <th>Required</th>
+                <th>Picked</th>
+                <th>Remaining</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="picklistBody"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 
