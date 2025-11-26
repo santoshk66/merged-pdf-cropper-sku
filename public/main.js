@@ -1,8 +1,14 @@
 let pdfDoc = null;
 let pageNum = 1;
 
+// ===== Picklist state =====
+let picklistItems = []; // { sku, product, requiredQty, pickedQty, remaining }
+const picklistPanelEl = document.getElementById("picklistPanel");
+const picklistTableBodyEl = document.getElementById("picklistTableBody");
+const markPicklistDoneBtn = document.getElementById("markPicklistDone");
+
 // ✅ Fixed crop dimensions (your original dimensions)
-const USE_FIXED_DIMENSIONS = true;  // keep true for auto mode
+const USE_FIXED_DIMENSIONS = true; // keep true for auto mode
 
 const FIXED_LABEL_BOX = {
   x: 189.6,
@@ -85,6 +91,141 @@ function setLoading(isLoading, message) {
   }
 }
 
+// ===== Picklist Panel Logic =====
+function initPicklistPanel(picklistArray) {
+  if (!Array.isArray(picklistArray) || picklistArray.length === 0) {
+    if (picklistPanelEl) picklistPanelEl.style.display = "none";
+    picklistItems = [];
+    return;
+  }
+
+  picklistItems = picklistArray.map((item) => ({
+    sku: item.sku,
+    product: item.product || "",
+    requiredQty: Number(item.qty) || 0,
+    pickedQty: 0,
+    remaining: Number(item.qty) || 0,
+  }));
+
+  renderPicklistTable();
+  if (picklistPanelEl) {
+    picklistPanelEl.style.display = "block";
+  }
+
+  logStatus(`📋 Picklist loaded with ${picklistItems.length} SKUs.`);
+}
+
+function renderPicklistTable() {
+  if (!picklistTableBodyEl) return;
+
+  picklistTableBodyEl.innerHTML = "";
+
+  picklistItems.forEach((row, index) => {
+    const tr = document.createElement("tr");
+
+    const status =
+      row.remaining <= 0
+        ? "Done"
+        : row.pickedQty > 0
+        ? "Partial"
+        : "Pending";
+
+    const statusColor =
+      status === "Done"
+        ? "#38a169"
+        : status === "Partial"
+        ? "#dd6b20"
+        : "#718096";
+
+    tr.innerHTML = `
+      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7;">${
+        index + 1
+      }</td>
+      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; font-weight:500;">${
+        row.sku
+      }</td>
+      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${row.product}">${
+      row.product
+    }</td>
+      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; text-align:right;">${
+        row.requiredQty
+      }</td>
+      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; text-align:right;">
+        <input
+          type="number"
+          min="0"
+          data-index="${index}"
+          value="${row.pickedQty}"
+          style="width:70px; padding:2px 4px; border:1px solid #e2e8f0; border-radius:4px; text-align:right; font-size:0.8rem;"
+          class="picklist-picked-input"
+        />
+      </td>
+      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; text-align:right;">
+        ${row.remaining}
+      </td>
+      <td style="padding:4px 6px; border-bottom:1px solid #edf2f7; color:${statusColor}; font-weight:500;">
+        ${status}
+      </td>
+    `;
+
+    picklistTableBodyEl.appendChild(tr);
+  });
+
+  // Attach change listeners for inputs
+  const inputs = picklistTableBodyEl.querySelectorAll(
+    "input.picklist-picked-input"
+  );
+  inputs.forEach((input) => {
+    input.addEventListener("change", onPickedQtyChange);
+  });
+}
+
+function onPickedQtyChange(e) {
+  const idx = Number(e.target.getAttribute("data-index"));
+  if (Number.isNaN(idx) || !picklistItems[idx]) return;
+
+  let val = Number(e.target.value);
+  if (Number.isNaN(val) || val < 0) val = 0;
+
+  const row = picklistItems[idx];
+
+  // Don't allow picked > required
+  if (val > row.requiredQty) {
+    val = row.requiredQty;
+    e.target.value = val;
+  }
+
+  row.pickedQty = val;
+  row.remaining = row.requiredQty - row.pickedQty;
+
+  renderPicklistTable();
+}
+
+if (markPicklistDoneBtn) {
+  markPicklistDoneBtn.addEventListener("click", () => {
+    if (!picklistItems.length) {
+      alert("No picklist loaded.");
+      return;
+    }
+
+    const notDone = picklistItems.filter((r) => r.remaining > 0);
+    if (notDone.length > 0) {
+      const totalRemaining = notDone.reduce(
+        (sum, r) => sum + r.remaining,
+        0
+      );
+      const confirmPartial = confirm(
+        `There are still ${totalRemaining} units remaining.\n` +
+          `Do you still want to mark this picklist as fulfilled?`
+      );
+      if (!confirmPartial) return;
+    }
+
+    logStatus("✅ Picklist marked as fulfilled.");
+    alert("Picklist marked as fulfilled. You can now proceed to pack/ship.");
+  });
+}
+
 // Drag/resize state
 let activeBoxType = null; // 'label' | 'invoice'
 let isDraggingBox = false;
@@ -104,9 +245,9 @@ function updateBox(el, box, type) {
   el.style.display = "block";
 
   // 🔍 Update dimension text
-  const text = `x: ${box.x.toFixed(1)}, y: ${box.y.toFixed(1)}, w: ${box.width.toFixed(
+  const text = `x: ${box.x.toFixed(1)}, y: ${box.y.toFixed(
     1
-  )}, h: ${box.height.toFixed(1)}`;
+  )}, w: ${box.width.toFixed(1)}, h: ${box.height.toFixed(1)}`;
 
   if (type === "label" && labelDimsEl) {
     labelDimsEl.textContent = text;
@@ -233,17 +374,17 @@ window.addEventListener("mousemove", (e) => {
       width = mouseX - x;
       height = mouseY - y;
     } else if (resizeDir === "bl") {
-      width = (x + width) - mouseX;
+      width = x + width - mouseX;
       x = mouseX;
       height = mouseY - y;
     } else if (resizeDir === "tr") {
       width = mouseX - x;
-      height = (y + height) - mouseY;
+      height = y + height - mouseY;
       y = mouseY;
     } else if (resizeDir === "tl") {
-      width = (x + width) - mouseX;
+      width = x + width - mouseX;
       x = mouseX;
-      height = (y + height) - mouseY;
+      height = y + height - mouseY;
       y = mouseY;
     }
 
@@ -494,6 +635,13 @@ processBtn.addEventListener("click", async () => {
       alert("Crop failed: " + (data.error || "Unknown error"));
       setLoading(false);
       return;
+    }
+
+    // 🔹 Initialize live picklist panel if server sent data
+    if (Array.isArray(data.picklist) && data.picklist.length > 0) {
+      initPicklistPanel(data.picklist);
+    } else {
+      logStatus("ℹ️ No picklist data returned from server.");
     }
 
     if (!data.zipUrl) {
