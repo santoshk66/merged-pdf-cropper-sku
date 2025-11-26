@@ -229,22 +229,13 @@ app.post("/crop", async (req, res) => {
     const pageCount = inputPdf.getPageCount();
 
     // 1) Order Id → CSV row map
+    // 1) Order Id → CSV row map (each orderId -> ARRAY of rows)
     let orderMap = {};
     if (mappingFilename) {
       const csvPath = path.join(UPLOAD_DIR, mappingFilename);
       const csvBuffer = await fsPromises.readFile(csvPath);
-      orderMap = buildOrderMapFromCSV(csvBuffer);
+      orderMap = buildOrderMapFromCSV(csvBuffer); // now: { orderId: [ row1, row2, ... ] }
     }
-
-    // 2) SKU corrections from Firestore
-    let skuCorrectionMap = {};
-    const snapshot = await db.collection("skuCorrections").get();
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.oldSku && data.newSku) {
-        skuCorrectionMap[data.oldSku] = data.newSku;
-      }
-    });
 
     // 3) Picklist aggregation: finalSku -> { sku, qty, product }
     const picklistMap = {};
@@ -253,9 +244,13 @@ app.post("/crop", async (req, res) => {
     const jobs = [];
     const seenOrderIds = new Set();
 
+    // NEW: keep track of how many rows we already used for each orderId
+    const orderUsageCount = {};
+
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i];
 
+      // If user chose to remove duplicates, skip repeated orderIds completely
       if (removeDuplicates && orderId) {
         if (seenOrderIds.has(orderId)) {
           continue;
@@ -263,7 +258,17 @@ app.post("/crop", async (req, res) => {
         seenOrderIds.add(orderId);
       }
 
-      const row = orderId ? orderMap[orderId] || {} : {};
+      // 🔑 Pick the correct CSV row for this label page
+      let row = {};
+      if (orderId && orderMap[orderId] && orderMap[orderId].length > 0) {
+        const used = orderUsageCount[orderId] || 0;
+
+        // If there are more pages than rows, reuse the last row
+        const indexToUse = Math.min(used, orderMap[orderId].length - 1);
+        row = orderMap[orderId][indexToUse];
+
+        orderUsageCount[orderId] = used + 1;
+      }
 
       const rawSku = (row["SKU"] || "").toString().trim();
 
