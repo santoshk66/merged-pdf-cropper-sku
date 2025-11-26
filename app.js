@@ -187,6 +187,7 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *      - SKU-wise PDFs for SKUs with >= 5 orders
  *      - One combined PDF for all SKUs with < 5 orders + no-SKU pages
  *  - All PDFs are packed into one ZIP file
+ *  - Also generates a picklist and stores it in Firestore (collection "picklists")
  */
 app.post("/crop", async (req, res) => {
   try {
@@ -632,23 +633,75 @@ app.post("/crop", async (req, res) => {
     const zipPath = path.join(OUTPUT_DIR, zipName);
     zip.writeZip(zipPath);
 
-    // -------- Respond with ZIP URL only --------
+    // -------- Build picklist JSON for DB --------
     const picklistJson = pickItems.map((item) => ({
       sku: item.sku,
-      qty: item.qty,
       product: item.product || "",
+      requiredQty: item.qty,
+      pickedQty: 0,
+      remaining: item.qty,
     }));
 
-    // -------- Respond with ZIP URL + picklist data --------
+    // -------- Store picklist in Firestore --------
+    const picklistId = `pl_${Date.now()}`; // simple unique ID
+    await db.collection("picklists").doc(picklistId).set({
+      picklistId,
+      createdAt: Date.now(),
+      pdfFilename,
+      mappingFilename: mappingFilename || null,
+      status: "pending",
+      items: picklistJson,
+    });
+
+    // -------- Respond with ZIP URL + picklistId --------
     res.json({
       zipUrl: `/outputs/${zipName}`,
-      picklist: picklistJson,
+      picklistId,
     });
   } catch (err) {
     console.error("Crop error", err);
     res
       .status(500)
       .json({ error: `Crop failed: ${err.message || "Unknown error"}` });
+  }
+});
+
+// ----------------- Picklist APIs (Firestore-backed) -----------------
+
+// GET /picklist/:id  -> return full picklist document
+app.get("/picklist/:id", async (req, res) => {
+  try {
+    const doc = await db.collection("picklists").doc(req.params.id).get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Picklist not found" });
+    }
+    res.json(doc.data());
+  } catch (err) {
+    console.error("Error fetching picklist:", err);
+    res.status(500).json({ error: "Failed to fetch picklist" });
+  }
+});
+
+// POST /picklist/:id  -> update items + status
+// body: { items: [...], status?: "pending"|"Partial"|"All Picked"|"Fulfilled"|... }
+app.post("/picklist/:id", async (req, res) => {
+  try {
+    const { items, status } = req.body;
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: "items must be an array" });
+    }
+
+    await db.collection("picklists").doc(req.params.id).update({
+      items,
+      status: status || "pending",
+      updatedAt: Date.now(),
+    });
+
+    res.json({ message: "Picklist updated" });
+  } catch (err) {
+    console.error("Error updating picklist:", err);
+    res.status(500).json({ error: "Failed to update picklist" });
   }
 });
 
