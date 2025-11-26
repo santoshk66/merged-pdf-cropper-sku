@@ -138,14 +138,13 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
     const collectionRef = db.collection("skuCorrections");
 
     for (const [oldSku, newSku] of entries) {
-      // Firestore doc IDs cannot contain '/'
       const safeDocId = oldSku.replace(/\//g, "_");
 
       const docRef = collectionRef.doc(safeDocId);
       batch.set(
         docRef,
         {
-          oldSku, // original with '/'
+          oldSku,
           newSku,
           safeDocId,
         },
@@ -178,16 +177,6 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *    orderIdsByPage: [ "OD...", "OD...", ... ],
  *    removeDuplicates: boolean
  *  }
- *
- * Behavior:
- *  - Uses Order Id -> CSV -> SKU/qty mapping
- *  - Grouping:
- *      - FULL combined PDF: all orders, but with a SKU header page
- *        before each SKU group (or "NO SKU / UNKNOWN")
- *      - SKU-wise PDFs for SKUs with >= 5 orders
- *      - One combined PDF for all SKUs with < 5 orders + no-SKU pages
- *  - All PDFs are packed into one ZIP file
- *  - Also generates a picklist and stores it in Firestore (collection "picklists")
  */
 app.post("/crop", async (req, res) => {
   try {
@@ -267,7 +256,6 @@ app.post("/crop", async (req, res) => {
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i];
 
-      // If user chose to remove duplicates, skip repeated orderIds
       if (removeDuplicates && orderId) {
         if (seenOrderIds.has(orderId)) {
           continue;
@@ -333,7 +321,7 @@ app.post("/crop", async (req, res) => {
     withSku.sort((a, b) => {
       const cmp = a.finalSku.localeCompare(b.finalSku);
       if (cmp !== 0) return cmp;
-      return a.pageIndex - b.pageIndex; // stable within same SKU
+      return a.pageIndex - b.pageIndex;
     });
 
     const sortedJobs = [...withSku, ...withoutSku];
@@ -347,18 +335,14 @@ app.post("/crop", async (req, res) => {
     }
 
     // ---- Create PDFs ----
-    // FULL combined: all orders
     const fullDoc = await PDFDocument.create();
     const fullFont = await fullDoc.embedFont(StandardFonts.Helvetica);
 
-    // Combined for SKUs < 5 or no SKU
     const smallDoc = await PDFDocument.create();
     const smallFont = await smallDoc.embedFont(StandardFonts.Helvetica);
 
-    // Separate docs for SKUs with >= 5 orders
     const skuDocs = {}; // sku -> { doc, font }
 
-    // Helper to add cropped pages for one job into a given PDF
     async function addCroppedPagesForJob(targetDoc, font, job) {
       const [page] = await targetDoc.copyPages(inputPdf, [job.pageIndex]);
       const { height } = page.getSize();
@@ -372,18 +356,15 @@ app.post("/crop", async (req, res) => {
         y: -(height - label.y - label.height),
       });
 
-      // Text: SKU + qty on bottom of label
       let labelText = job.finalSku || job.rawSku || "";
       if (labelText && job.qtyRaw) {
         labelText = `${labelText} (${job.qtyRaw})`;
       }
       if (labelText) {
         const fontSize = 6;
-        const textX = 5;
-        const textY = 4;
         labelPage.drawText(labelText, {
-          x: textX,
-          y: textY,
+          x: 5,
+          y: 4,
           font,
           size: fontSize,
           color: rgb(0, 0, 0),
@@ -399,13 +380,11 @@ app.post("/crop", async (req, res) => {
     }
 
     // ---- MAIN LOOP over sortedJobs ----
-    let lastGroupKey = null; // tracks previous SKU group
+    let lastGroupKey = null;
 
     for (const job of sortedJobs) {
-      // Group key for header – prefer finalSku, then rawSku, else "NO_SKU"
       const groupKey = job.finalSku || job.rawSku || "NO_SKU";
 
-      // When SKU group changes, insert a header page in FULL combined PDF
       if (groupKey !== lastGroupKey) {
         const headerPage = fullDoc.addPage([label.width, label.height]);
         const { width: hpw, height: hph } = headerPage.getSize();
@@ -413,14 +392,11 @@ app.post("/crop", async (req, res) => {
         const headerText =
           groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
 
-        // Smaller font size for header
         const headerFontSize = 12;
         const headerLineHeight = headerFontSize * 1.3;
 
-        // Max width for text so it doesn't touch edges
-        const maxHeaderWidth = hpw - 40; // 20pt margin on each side
+        const maxHeaderWidth = hpw - 40;
 
-        // Wrap long SKUs into multiple lines
         const headerLines = wrapTextIntoLines(
           headerText,
           maxHeaderWidth,
@@ -428,10 +404,7 @@ app.post("/crop", async (req, res) => {
           headerFontSize
         );
 
-        // Total height of all lines
         const totalHeaderHeight = headerLines.length * headerLineHeight;
-
-        // Start Y so the header block is vertically centered
         let headerY = (hph + totalHeaderHeight) / 2 - headerLineHeight;
 
         for (const line of headerLines) {
@@ -439,7 +412,7 @@ app.post("/crop", async (req, res) => {
             line,
             headerFontSize
           );
-          const headerX = (hpw - lineWidth) / 2; // center horizontally
+          const headerX = (hpw - lineWidth) / 2;
 
           headerPage.drawText(line, {
             x: headerX,
@@ -455,15 +428,13 @@ app.post("/crop", async (req, res) => {
         lastGroupKey = groupKey;
       }
 
-      // 1️⃣ Add normal label + invoice pages to FULL combined PDF
+      // Full combined
       await addCroppedPagesForJob(fullDoc, fullFont, job);
 
-      // 2️⃣ Existing logic for per-SKU & small-combined PDFs
       const sku = job.finalSku;
       const count = sku ? skuCounts[sku] || 0 : 0;
 
       if (sku && count >= 5) {
-        // This SKU gets its own PDF
         if (!skuDocs[sku]) {
           const doc = await PDFDocument.create();
           const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -471,7 +442,6 @@ app.post("/crop", async (req, res) => {
         }
         await addCroppedPagesForJob(skuDocs[sku].doc, skuDocs[sku].font, job);
       } else {
-        // Goes into combined-small SKUs PDF (including no-SKU jobs)
         await addCroppedPagesForJob(smallDoc, smallFont, job);
       }
     }
@@ -480,7 +450,6 @@ app.post("/crop", async (req, res) => {
     const picklistDoc = await PDFDocument.create();
     const pickFont = await picklistDoc.embedFont(StandardFonts.Helvetica);
 
-    // A4 size in points
     const pageWidth = 595.28;
     const pageHeight = 841.89;
     let pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
@@ -490,14 +459,12 @@ app.post("/crop", async (req, res) => {
     const lineHeight = 14;
     const fontSize = 8;
 
-    // Column X positions
     const colSnoX = marginX;
     const colSkuX = marginX + 40;
     const colQtyX = marginX + 200;
     const colProductX = marginX + 240;
     const maxProductWidth = pageWidth - colProductX - 40;
 
-    // Title
     pickPage.drawText("Picklist", {
       x: marginX,
       y,
@@ -522,12 +489,16 @@ app.post("/crop", async (req, res) => {
     drawHeaders(pickPage);
     y -= lineHeight;
 
-    const pickItems = Object.values(picklistMap).sort((a, b) =>
-      a.sku.localeCompare(b.sku)
-    );
+    // ---- Picklist items sorted by qty DESC (big → small) ----
+    const pickItemsArray = Object.values(picklistMap);
+    const pickItemsSorted = pickItemsArray.sort((a, b) => {
+      const diff = (b.qty || 0) - (a.qty || 0);
+      if (diff !== 0) return diff;
+      return a.sku.localeCompare(b.sku);
+    });
 
     let index = 1;
-    for (const item of pickItems) {
+    for (const item of pickItemsSorted) {
       const productText = item.product || "";
 
       const productLines = wrapTextIntoLines(
@@ -539,7 +510,6 @@ app.post("/crop", async (req, res) => {
 
       const neededHeight = productLines.length * lineHeight;
 
-      // New page if needed
       if (y - neededHeight < 40) {
         pickPage = picklistDoc.addPage([pageWidth, pageHeight]);
         y = pageHeight - 50;
@@ -547,7 +517,6 @@ app.post("/crop", async (req, res) => {
         y -= lineHeight;
       }
 
-      // First line
       pickPage.drawText(String(index), {
         x: colSnoX,
         y,
@@ -573,7 +542,6 @@ app.post("/crop", async (req, res) => {
         font: pickFont,
       });
 
-      // Extra lines
       for (let li = 1; li < productLines.length; li++) {
         y -= lineHeight;
 
@@ -599,23 +567,19 @@ app.post("/crop", async (req, res) => {
     // -------- Create ZIP with all PDFs in memory --------
     const zip = new AdmZip();
 
-    // 1) FULL combined PDF
     const fullBytes = await fullDoc.save();
     zip.addFile("1_full_combined.pdf", Buffer.from(fullBytes));
 
-    // 2) picklist
-    if (pickItems.length > 0) {
+    if (pickItemsSorted.length > 0) {
       const pickBytes = await picklistDoc.save();
       zip.addFile("2_picklist.pdf", Buffer.from(pickBytes));
     }
 
-    // 3) combined small SKUs
     if (smallDoc.getPageCount() > 0) {
       const smallBytes = await smallDoc.save();
       zip.addFile("3_combined_small_skus.pdf", Buffer.from(smallBytes));
     }
 
-    // 4) per-SKU PDFs (SKUs with >= 5 orders)
     const sortedSkuKeys = Object.keys(skuDocs).sort((a, b) =>
       a.localeCompare(b)
     );
@@ -628,34 +592,45 @@ app.post("/crop", async (req, res) => {
       zip.addFile(filename, Buffer.from(bytes));
     }
 
-    // -------- Save ZIP to outputs --------
     const zipName = `bundle-${pdfFilename}.zip`;
     const zipPath = path.join(OUTPUT_DIR, zipName);
     zip.writeZip(zipPath);
 
-    // -------- Build picklist JSON for DB --------
-    const picklistJson = pickItems.map((item) => ({
+    // -------- Build picklist JSON (qty DESC) --------
+    const picklistJson = pickItemsSorted.map((item) => ({
       sku: item.sku,
-      product: item.product || "",
       requiredQty: item.qty,
       pickedQty: 0,
       remaining: item.qty,
+      product: item.product || "",
     }));
 
-    // -------- Store picklist in Firestore --------
-    const picklistId = `pl_${Date.now()}`; // simple unique ID
+    const totalUnits = picklistJson.reduce(
+      (sum, it) => sum + (Number(it.requiredQty) || 0),
+      0
+    );
+    const totalSkus = picklistJson.length;
+
+    const now = Date.now();
+    const picklistId = `pl_${now}`;
+
+    // Save picklist in Firestore (for dashboard)
     await db.collection("picklists").doc(picklistId).set({
       picklistId,
-      createdAt: Date.now(),
       pdfFilename,
       mappingFilename: mappingFilename || null,
+      createdAt: now,
+      updatedAt: now,
       status: "pending",
       items: picklistJson,
+      totalUnits,
+      totalSkus,
     });
 
-    // -------- Respond with ZIP URL + picklistId --------
+    // -------- Respond --------
     res.json({
       zipUrl: `/outputs/${zipName}`,
+      picklist: picklistJson,
       picklistId,
     });
   } catch (err) {
@@ -668,7 +643,7 @@ app.post("/crop", async (req, res) => {
 
 // ----------------- Picklist APIs (Firestore-backed) -----------------
 
-// GET /picklist/:id  -> return full picklist document
+// Get a single picklist by id
 app.get("/picklist/:id", async (req, res) => {
   try {
     const doc = await db.collection("picklists").doc(req.params.id).get();
@@ -682,7 +657,7 @@ app.get("/picklist/:id", async (req, res) => {
   }
 });
 
-// ✅ NEW: GET /picklist-latest -> return latest picklist by createdAt
+// Get latest (most recent) picklist – kept for backward compatibility
 app.get("/picklist-latest", async (req, res) => {
   try {
     const snap = await db
@@ -696,15 +671,39 @@ app.get("/picklist-latest", async (req, res) => {
     }
 
     const doc = snap.docs[0];
-    res.json(doc.data()); // contains picklistId, items, status, etc.
+    res.json(doc.data());
   } catch (err) {
     console.error("Error fetching latest picklist:", err);
     res.status(500).json({ error: "Failed to fetch latest picklist" });
   }
 });
 
-// POST /picklist/:id  -> update items + status
-// body: { items: [...], status?: "pending"|"Partial"|"All Picked"|"Fulfilled"|... }
+// ✅ NEW: list picklists by createdAt range (for date filters)
+app.get("/picklists", async (req, res) => {
+  try {
+    const from = req.query.from ? Number(req.query.from) : null;
+    const to = req.query.to ? Number(req.query.to) : null;
+
+    let q = db.collection("picklists").orderBy("createdAt", "desc");
+
+    if (from) {
+      q = q.where("createdAt", ">=", from);
+    }
+    if (to) {
+      q = q.where("createdAt", "<=", to);
+    }
+
+    const snap = await q.get();
+    const list = snap.docs.map((d) => d.data());
+
+    res.json(list);
+  } catch (err) {
+    console.error("Error listing picklists:", err);
+    res.status(500).json({ error: "Failed to list picklists" });
+  }
+});
+
+// Update picklist items + status (Fulfilled, Pending, etc.)
 app.post("/picklist/:id", async (req, res) => {
   try {
     const { items, status } = req.body;
@@ -713,10 +712,18 @@ app.post("/picklist/:id", async (req, res) => {
       return res.status(400).json({ error: "items must be an array" });
     }
 
+    const totalUnits = items.reduce(
+      (sum, it) => sum + (Number(it.requiredQty) || 0),
+      0
+    );
+    const totalSkus = items.length;
+
     await db.collection("picklists").doc(req.params.id).update({
       items,
       status: status || "pending",
       updatedAt: Date.now(),
+      totalUnits,
+      totalSkus,
     });
 
     res.json({ message: "Picklist updated" });
