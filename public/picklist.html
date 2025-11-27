@@ -50,6 +50,17 @@
       margin-bottom: 10px;
     }
 
+    .subtitle a {
+      color: #3182ce;
+      text-decoration: none;
+      font-weight: 500;
+      margin-left: 4px;
+    }
+
+    .subtitle a:hover {
+      text-decoration: underline;
+    }
+
     /* Filters */
     .filters-row {
       display: flex;
@@ -264,7 +275,7 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 0.8rem;
-      min-width: 700px;
+      min-width: 760px;
     }
 
     thead {
@@ -309,6 +320,21 @@
       text-overflow: ellipsis;
     }
 
+    .assign-btn {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      background: #805ad5;
+      color: #ffffff;
+      white-space: nowrap;
+    }
+
+    .assign-btn:hover {
+      filter: brightness(0.95);
+    }
+
     /* Tablet */
     @media (max-width: 900px) {
       #container {
@@ -326,7 +352,7 @@
       }
 
       table {
-        min-width: 600px;
+        min-width: 640px;
       }
     }
 
@@ -420,6 +446,7 @@
       td:nth-child(5)::before { content: "Picked"; }
       td:nth-child(6)::before { content: "Remaining"; }
       td:nth-child(7)::before { content: "Status"; }
+      td:nth-child(8)::before { content: "Other Office"; }
 
       td:nth-child(3) {
         max-width: none;
@@ -437,6 +464,7 @@
     <h1>Live Picklists</h1>
     <div class="subtitle">
       View all picklists by date and status. Items inside each picklist are sorted by required quantity (big → small).
+      <a href="office-picklist.html" target="_blank">(Open another office picklist)</a>
     </div>
 
     <div class="filters-row">
@@ -496,6 +524,7 @@
                 <th>Picked</th>
                 <th>Remaining</th>
                 <th>Status</th>
+                <th>Other Office</th>
               </tr>
             </thead>
             <tbody id="picklistBody"></tbody>
