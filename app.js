@@ -174,9 +174,15 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *    mappingFilename,
  *    labelBox: { x, y, width, height },
  *    invoiceBox: { x, y, width, height },
- *    orderIdsByPage: [ "OD...", "OD...", ... ],
+ *    orderIdsByPage:   [ "OD...", "OD...", ... ],
+ *    trackingIdsByPage:[ "FMPP...", null, ... ],   // NEW
  *    removeDuplicates: boolean
  *  }
+ *
+ * Behaviour for duplicates:
+ *  - If Order Id appears once in CSV → use that row (ignore tracking).
+ *  - If Order Id appears multiple times in CSV → use Tracking ID to pick
+ *    the correct row. If still ambiguous → round-robin through rows.
  */
 app.post("/crop", async (req, res) => {
   try {
@@ -186,6 +192,7 @@ app.post("/crop", async (req, res) => {
       labelBox,
       invoiceBox,
       orderIdsByPage = [],
+      trackingIdsByPage = [],
       removeDuplicates = false,
     } = req.body;
 
@@ -228,15 +235,52 @@ app.post("/crop", async (req, res) => {
 
     const pageCount = inputPdf.getPageCount();
 
-    // 1) Order Id → CSV row map
+    // ---------- 1) CSV order + tracking maps ----------
     let orderMap = {};
+    let trackingMap = {}; // trackingId -> [{ orderId, row }, ...]
+    let duplicateOrderIds = [];
+    let duplicateTrackingIds = [];
+
     if (mappingFilename) {
       const csvPath = path.join(UPLOAD_DIR, mappingFilename);
       const csvBuffer = await fsPromises.readFile(csvPath);
-      orderMap = buildOrderMapFromCSV(csvBuffer);
+      orderMap = buildOrderMapFromCSV(csvBuffer); // should be orderId -> [rows]
+
+      for (const [orderId, rowsOrRow] of Object.entries(orderMap)) {
+        const rows = Array.isArray(rowsOrRow) ? rowsOrRow : [rowsOrRow];
+
+        // Duplicate Order Ids in CSV
+        if (rows.length > 1) {
+          duplicateOrderIds.push(orderId);
+        }
+
+        // Build tracking map
+        for (const row of rows) {
+          const trackingRaw =
+            (row["Tracking ID"] ||
+              row["Tracking Id"] ||
+              row["tracking id"] ||
+              row["TrackingID"] ||
+              "").toString().trim();
+
+          if (!trackingRaw) continue;
+
+          if (!trackingMap[trackingRaw]) {
+            trackingMap[trackingRaw] = [];
+          }
+          trackingMap[trackingRaw].push({ orderId, row });
+        }
+      }
+
+      // Duplicate Tracking IDs in CSV
+      for (const [tid, arr] of Object.entries(trackingMap)) {
+        if (arr.length > 1) {
+          duplicateTrackingIds.push(tid);
+        }
+      }
     }
 
-    // 2) SKU corrections from Firestore
+    // ---------- 2) SKU corrections from Firestore ----------
     let skuCorrectionMap = {};
     const snapshot = await db.collection("skuCorrections").get();
     snapshot.forEach((doc) => {
@@ -246,16 +290,19 @@ app.post("/crop", async (req, res) => {
       }
     });
 
-    // 3) Picklist aggregation: finalSku -> { sku, qty, product }
+    // ---------- 3) Picklist aggregation: finalSku -> { sku, qty, product } ----------
     const picklistMap = {};
 
-    // ---- Build jobs array, with optional duplicate removal ----
+    // Build jobs array, with optional duplicate removal
     const jobs = [];
     const seenOrderIds = new Set();
+    const orderUsageCount = {}; // for round-robin when one Order Id has multiple rows
 
     for (let i = 0; i < pageCount; i++) {
-      const orderId = orderIdsByPage[i];
+      const orderId = orderIdsByPage[i] || null;
+      const trackingId = trackingIdsByPage[i] || null;
 
+      // Optional: remove duplicate labels for the SAME Order Id (per PDF)
       if (removeDuplicates && orderId) {
         if (seenOrderIds.has(orderId)) {
           continue;
@@ -263,7 +310,47 @@ app.post("/crop", async (req, res) => {
         seenOrderIds.add(orderId);
       }
 
-      const row = orderId ? orderMap[orderId] || {} : {};
+      let row = {};
+
+      if (orderId && orderMap[orderId]) {
+        const rowsForOrderRaw = orderMap[orderId];
+        const rowsForOrder = Array.isArray(rowsForOrderRaw)
+          ? rowsForOrderRaw
+          : [rowsForOrderRaw];
+
+        if (rowsForOrder.length === 1) {
+          // Simple: unique Order Id in CSV → ignore trackingId completely
+          row = rowsForOrder[0];
+        } else {
+          // 🔁 DUPLICATE Order Id in CSV → NOW we use Tracking ID
+          if (trackingId && trackingMap[trackingId]) {
+            // Find rows which match both orderId & trackingId
+            const candidates = trackingMap[trackingId].filter(
+              (entry) => entry.orderId === orderId
+            );
+
+            if (candidates.length === 1) {
+              row = candidates[0].row;
+            } else {
+              // Still ambiguous → round-robin over rowsForOrder
+              const used = orderUsageCount[orderId] || 0;
+              const idx = used % rowsForOrder.length;
+              row = rowsForOrder[idx];
+              orderUsageCount[orderId] = used + 1;
+            }
+          } else {
+            // No tracking ID / no match → round-robin
+            const used = orderUsageCount[orderId] || 0;
+            const idx = used % rowsForOrder.length;
+            row = rowsForOrder[idx];
+            orderUsageCount[orderId] = used + 1;
+          }
+        }
+      } else {
+        // Order Id missing or not in CSV.
+        // As per your requirement: DO NOT map by tracking-only here.
+        row = {};
+      }
 
       const rawSku = (row["SKU"] || "").toString().trim();
 
@@ -300,6 +387,7 @@ app.post("/crop", async (req, res) => {
       jobs.push({
         pageIndex: i,
         orderId,
+        trackingId,
         rawSku,
         finalSku,
         qtyRaw,
@@ -632,6 +720,8 @@ app.post("/crop", async (req, res) => {
       zipUrl: `/outputs/${zipName}`,
       picklist: picklistJson,
       picklistId,
+      duplicateOrderIds,
+      duplicateTrackingIds,
     });
   } catch (err) {
     console.error("Crop error", err);
@@ -678,7 +768,7 @@ app.get("/picklist-latest", async (req, res) => {
   }
 });
 
-// ✅ NEW: list picklists by createdAt range (for date filters)
+// List picklists by createdAt range (for date filters)
 app.get("/picklists", async (req, res) => {
   try {
     const from = req.query.from ? Number(req.query.from) : null;
