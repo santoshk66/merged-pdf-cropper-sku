@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Other Office Picklist Tasks</title>
+  <title>Assigned Picklist Tasks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -15,7 +15,12 @@
       --accent: #38a169;
       --danger: #e53e3e;
       --primary: #3182ce;
-      --info: #3182ce;
+      --tag-pending-bg: #fefcbf;
+      --tag-pending-text: #744210;
+      --tag-progress-bg: #bee3f8;
+      --tag-progress-text: #2b6cb0;
+      --tag-complete-bg: #c6f6d5;
+      --tag-complete-text: #2f855a;
     }
 
     * {
@@ -24,15 +29,14 @@
 
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
       margin: 0;
       padding: 12px;
+      background: var(--bg);
       color: var(--text-main);
     }
 
     #container {
       max-width: 1200px;
-      width: 100%;
       margin: 0 auto;
       background: var(--card-bg);
       border-radius: 10px;
@@ -41,8 +45,8 @@
     }
 
     h1 {
-      font-size: 1.3rem;
       margin: 0 0 6px;
+      font-size: 1.3rem;
     }
 
     .subtitle {
@@ -51,12 +55,13 @@
       margin-bottom: 10px;
     }
 
-    /* Filters */
+    /* Filters row */
     .filters-row {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      margin-bottom: 12px;
+      align-items: center;
+      margin-bottom: 10px;
     }
 
     .filter-group {
@@ -79,35 +84,60 @@
       background: #f9fafb;
     }
 
-    /* Status badge + summary */
-    .top-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 8px;
+    .auto-info {
+      margin-left: auto;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    /* Messages */
+    #loadingMsg,
+    #emptyMsg,
+    #errorMsg,
+    #statusSummary {
+      font-size: 0.82rem;
+      margin-top: 6px;
+    }
+
+    #loadingMsg {
+      background: #ebf8ff;
+      border: 1px solid #bee3f8;
+      padding: 6px 8px;
+      border-radius: 6px;
+      color: #2b6cb0;
+    }
+
+    #emptyMsg {
+      display: none;
+      background: #fefcbf;
+      border: 1px solid #faf089;
+      padding: 6px 8px;
+      border-radius: 6px;
+      color: #744210;
+    }
+
+    #errorMsg {
+      display: none;
+      background: #fed7d7;
+      border: 1px solid #feb2b2;
+      padding: 6px 8px;
+      border-radius: 6px;
+      color: #c53030;
     }
 
     #statusSummary {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }
-
-    .auto-refresh-text {
-      font-size: 0.75rem;
       color: var(--text-muted);
     }
 
     /* Table wrapper */
     #tableWrapper {
       margin-top: 10px;
-      max-height: 480px;
-      overflow: auto;
-      border: 1px solid var(--border);
       border-radius: 8px;
-      background: #ffffff;
+      border: 1px solid var(--border);
+      overflow: auto;
       -webkit-overflow-scrolling: touch;
+      background: #ffffff;
       display: none;
     }
 
@@ -115,7 +145,7 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 0.8rem;
-      min-width: 780px;
+      min-width: 700px;
     }
 
     thead {
@@ -125,8 +155,7 @@
       z-index: 1;
     }
 
-    th,
-    td {
+    th, td {
       padding: 6px 8px;
       border-bottom: 1px solid #edf2f7;
       text-align: left;
@@ -142,31 +171,45 @@
     }
 
     input[type="number"] {
-      width: 80px;
+      width: 70px;
       padding: 2px 4px;
-      border: 1px solid var(--border);
       border-radius: 4px;
-      text-align: right;
+      border: 1px solid var(--border);
       font-size: 0.8rem;
+      text-align: right;
     }
 
-    td:nth-child(2) {
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.72rem;
       font-weight: 500;
+      white-space: nowrap;
     }
 
-    td:nth-child(3) {
-      max-width: 250px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .tag-pending {
+      background: var(--tag-pending-bg);
+      color: var(--tag-pending-text);
+    }
+
+    .tag-inprogress {
+      background: var(--tag-progress-bg);
+      color: var(--tag-progress-text);
+    }
+
+    .tag-completed {
+      background: var(--tag-complete-bg);
+      color: var(--tag-complete-text);
     }
 
     .action-btn {
-      padding: 4px 8px;
-      font-size: 0.75rem;
+      cursor: pointer;
       border-radius: 6px;
       border: none;
-      cursor: pointer;
+      padding: 4px 10px;
+      font-size: 0.78rem;
+      font-weight: 500;
       white-space: nowrap;
     }
 
@@ -175,65 +218,7 @@
       color: #ffffff;
     }
 
-    .btn-complete:hover {
-      filter: brightness(0.95);
-    }
-
-    .tag {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 0.7rem;
-      font-weight: 500;
-      white-space: nowrap;
-    }
-
-    .tag-pending {
-      background: #fefcbf;
-      color: #b7791f;
-    }
-
-    .tag-inprogress {
-      background: #bee3f8;
-      color: #2b6cb0;
-    }
-
-    .tag-completed {
-      background: #c6f6d5;
-      color: #2f855a;
-    }
-
-    #loadingMsg,
-    #emptyMsg,
-    #errorMsg {
-      margin-top: 8px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      display: none;
-    }
-
-    #loadingMsg {
-      background: #ebf8ff;
-      border: 1px solid #bee3f8;
-      color: #2b6cb0;
-      display: block; /* default while loading */
-    }
-
-    #emptyMsg {
-      background: #fefcbf;
-      border: 1px solid #faf089;
-      color: #744210;
-    }
-
-    #errorMsg {
-      background: #fed7d7;
-      border: 1px solid #feb2b2;
-      color: #9b2c2c;
-    }
-
-    /* Tablet */
+    /* Responsive */
     @media (max-width: 900px) {
       #container {
         padding: 14px 12px;
@@ -241,11 +226,17 @@
       }
 
       table {
-        min-width: 680px;
+        min-width: 600px;
+      }
+
+      .auto-info {
+        width: 100%;
+        margin-left: 0;
+        text-align: left;
+        margin-top: 4px;
       }
     }
 
-    /* Mobile */
     @media (max-width: 640px) {
       body {
         padding: 8px;
@@ -262,23 +253,17 @@
         align-items: flex-start;
       }
 
-      .top-row {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
       #tableWrapper {
-        max-height: none;
         margin-top: 8px;
       }
 
       table {
-        font-size: 0.78rem;
         min-width: 100%;
+        font-size: 0.78rem;
       }
     }
 
-    /* Very small screens: card layout */
+    /* Very small screens – card layout */
     @media (max-width: 520px) {
       thead {
         display: none;
@@ -299,10 +284,10 @@
       }
 
       td {
+        padding: 4px 6px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 4px 6px;
       }
 
       td::before {
@@ -324,11 +309,6 @@
       td:nth-child(8)::before { content: "Task Status"; }
       td:nth-child(9)::before { content: "Actions"; }
 
-      td:nth-child(3) {
-        max-width: none;
-        white-space: normal;
-      }
-
       input[type="number"] {
         width: 70px;
       }
@@ -339,11 +319,21 @@
   <div id="container">
     <h1>Assigned Picklist Tasks</h1>
     <div class="subtitle">
-      Your team can see all SKUs assigned from main picklists and mark them as picked / completed here.
-      This list auto-refreshes and filters on change.
+      Your team can see all SKUs assigned from main picklists and mark them as picked / completed here. This list auto-refreshes and filters on change.
     </div>
 
     <div class="filters-row">
+      <div class="filter-group">
+        <label for="dateFilter">Date</label>
+        <select id="dateFilter">
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="last7">Last 7 days</option>
+          <option value="thisMonth">This month</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+
       <div class="filter-group">
         <label for="statusFilter">Task Status</label>
         <select id="statusFilter">
@@ -353,16 +343,16 @@
           <option value="completed">Completed</option>
         </select>
       </div>
-    </div>
 
-    <div class="top-row">
-      <div id="statusSummary">Loading tasks...</div>
-      <div class="auto-refresh-text">Auto-refresh running (every 30 seconds).</div>
+      <div class="auto-info">
+        Auto-refresh running (every 30 seconds).
+      </div>
     </div>
 
     <div id="loadingMsg">Loading transfer tasks...</div>
+    <div id="emptyMsg">No transfer tasks found.</div>
     <div id="errorMsg"></div>
-    <div id="emptyMsg">No tasks found. Ask main office to assign some SKUs first.</div>
+    <div id="statusSummary"></div>
 
     <div id="tableWrapper">
       <table>
