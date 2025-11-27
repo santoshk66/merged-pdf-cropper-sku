@@ -823,6 +823,145 @@ app.post("/picklist/:id", async (req, res) => {
   }
 });
 
+// ----------------- Transfer Tasks (Another Office Picklist) -----------------
+
+/**
+ * A "transfer task" = some quantity of a SKU from a picklist
+ * that should be brought from another office.
+ *
+ * Firestore collection: transferTasks
+ * Fields:
+ *  - picklistId
+ *  - sku
+ *  - product
+ *  - assignedQty
+ *  - fulfilledQty
+ *  - status: 'pending' | 'partial' | 'fulfilled'
+ *  - createdAt, updatedAt
+ */
+
+// Create a transfer task from the main picklist page
+app.post("/transfer-tasks", async (req, res) => {
+  try {
+    const { picklistId, sku, product, assignedQty } = req.body;
+
+    if (!picklistId || !sku) {
+      return res
+        .status(400)
+        .json({ error: "picklistId and sku are required" });
+    }
+
+    const qtyNum = Number(assignedQty);
+    if (!qtyNum || qtyNum <= 0) {
+      return res
+        .status(400)
+        .json({ error: "assignedQty must be a positive number" });
+    }
+
+    const now = Date.now();
+
+    const docRef = await db.collection("transferTasks").add({
+      picklistId,
+      sku,
+      product: product || "",
+      assignedQty: qtyNum,
+      fulfilledQty: 0,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    res.json({
+      id: docRef.id,
+      message: "Transfer task created successfully",
+    });
+  } catch (err) {
+    console.error("Error creating transfer task:", err);
+    res.status(500).json({ error: "Failed to create transfer task" });
+  }
+});
+
+// List transfer tasks (for other office page)
+// Query params:
+//   status = pending | partial | fulfilled (optional)
+//   from, to = timestamps in ms (optional)
+app.get("/transfer-tasks", async (req, res) => {
+  try {
+    const status = req.query.status || null;
+    const from = req.query.from ? Number(req.query.from) : null;
+    const to = req.query.to ? Number(req.query.to) : null;
+
+    let q = db.collection("transferTasks").orderBy("createdAt", "desc");
+
+    if (status) {
+      q = q.where("status", "==", status);
+    }
+    if (from) {
+      q = q.where("createdAt", ">=", from);
+    }
+    if (to) {
+      q = q.where("createdAt", "<=", to);
+    }
+
+    const snap = await q.get();
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    res.json(list);
+  } catch (err) {
+    console.error("Error listing transfer tasks:", err);
+    res.status(500).json({ error: "Failed to list transfer tasks" });
+  }
+});
+
+// Update a transfer task (used by other office when they bring stock)
+// Body:
+//   fulfilledQty (number) - required
+//   status (optional)     - if not provided, auto-calculated
+app.post("/transfer-tasks/:id", async (req, res) => {
+  try {
+    const { fulfilledQty, status } = req.body;
+
+    const qtyNum =
+      fulfilledQty !== undefined && fulfilledQty !== null
+        ? Number(fulfilledQty)
+        : null;
+
+    if (qtyNum === null || Number.isNaN(qtyNum) || qtyNum < 0) {
+      return res
+        .status(400)
+        .json({ error: "fulfilledQty must be a non-negative number" });
+    }
+
+    const docRef = db.collection("transferTasks").doc(req.params.id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: "Transfer task not found" });
+    }
+
+    const data = docSnap.data();
+    let newStatus = status || data.status || "pending";
+
+    if (qtyNum >= data.assignedQty) {
+      newStatus = "fulfilled";
+    } else if (qtyNum > 0) {
+      newStatus = "partial";
+    } else {
+      newStatus = "pending";
+    }
+
+    await docRef.update({
+      fulfilledQty: qtyNum,
+      status: newStatus,
+      updatedAt: Date.now(),
+    });
+
+    res.json({ message: "Transfer task updated", status: newStatus });
+  } catch (err) {
+    console.error("Error updating transfer task:", err);
+    res.status(500).json({ error: "Failed to update transfer task" });
+  }
+});
+
 // ----------------- Start server -----------------
 const port = process.env.PORT || 3000;
 app.listen(port, "0.0.0.0", () =>
