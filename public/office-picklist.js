@@ -51,7 +51,7 @@ function formatStatusTag(status) {
   return `<span class="tag tag-pending">Pending</span>`;
 }
 
-// ---------- Fetch tasks from server (NO status param) ----------
+// ---------- Fetch tasks from server ----------
 async function loadTasksFromServer() {
   if (isLoading) return;
   showError("");
@@ -67,7 +67,7 @@ async function loadTasksFromServer() {
       throw new Error(msg);
     }
 
-    // 🔑 Normalize ID field so we ALWAYS have task._id
+    // Normalize ID → _id
     allTasks = (Array.isArray(data) ? data : []).map((t) => {
       const _id = t.id || t.taskId || t.transferId || t.docId || null;
       return { ...t, _id };
@@ -86,9 +86,9 @@ async function loadTasksFromServer() {
   }
 }
 
-// ---------- Apply status filter (client-side) ----------
+// ---------- Apply status filter ----------
 function applyFilterAndRender() {
-  const statusFilter = statusFilterEl.value; // all / pending / in-progress / completed
+  const statusFilter = statusFilterEl.value;
 
   if (!allTasks.length) {
     filteredTasks = [];
@@ -118,7 +118,6 @@ function applyFilterAndRender() {
     });
   }
 
-  // Sort: pending -> in-progress -> completed, then newest first
   const statusOrder = {
     pending: 0,
     "in-progress": 1,
@@ -127,6 +126,7 @@ function applyFilterAndRender() {
     complete: 2,
     done: 2,
   };
+
   filteredTasks.sort((a, b) => {
     const sa = statusOrder[(a.status || "pending").toLowerCase()] ?? 0;
     const sb = statusOrder[(b.status || "pending").toLowerCase()] ?? 0;
@@ -225,7 +225,6 @@ function renderTable() {
     taskBodyEl.appendChild(tr);
   });
 
-  // Attach listeners
   taskBodyEl.querySelectorAll("input[type=number]").forEach((input) => {
     input.addEventListener("change", onPickedChange);
   });
@@ -235,7 +234,7 @@ function renderTable() {
   });
 }
 
-// ---------- Update picked quantity ----------
+// ---------- Picked qty change ----------
 async function onPickedChange(e) {
   const id = e.target.getAttribute("data-id");
   const localIndex = Number(e.target.getAttribute("data-index"));
@@ -260,13 +259,14 @@ async function onPickedChange(e) {
     remaining === 0 ? "completed" : val > 0 ? "in-progress" : "pending";
 
   try {
+    // 🔑 Also send fulfilledQty so backend validator is happy
     await updateTaskOnServer(id, {
       pickedQty: val,
+      fulfilledQty: val,
       remaining,
       status: newStatus,
     });
 
-    // Update in memory
     task.pickedQty = val;
     task.remaining = remaining;
     task.status = newStatus;
@@ -312,8 +312,10 @@ async function onMarkDoneClick(e) {
   }
 
   try {
+    // 🔑 Here too: set fulfilledQty to assigned
     await updateTaskOnServer(id, {
       pickedQty: assigned,
+      fulfilledQty: assigned,
       remaining: 0,
       status: "completed",
     });
@@ -348,9 +350,7 @@ async function updateTaskOnServer(id, payload) {
   let data = {};
   try {
     data = await res.json();
-  } catch (e) {
-    // ignore JSON parse error
-  }
+  } catch (e) {}
 
   if (!res.ok) {
     console.error("Update error response:", data);
@@ -360,7 +360,7 @@ async function updateTaskOnServer(id, payload) {
   return data;
 }
 
-// ---------- Auto-refresh (every 30s) ----------
+// ---------- Auto-refresh ----------
 function startAutoRefresh() {
   setInterval(() => {
     loadTasksFromServer();
