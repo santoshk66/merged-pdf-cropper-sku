@@ -2,81 +2,120 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Another Office Picklist – Transfer Tasks</title>
+  <title>Other Office Picklist Tasks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
+    :root {
+      --bg: #f6f8fc;
+      --card-bg: #ffffff;
+      --text-main: #2d3748;
+      --text-muted: #718096;
+      --border: #e2e8f0;
+      --shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+      --accent: #38a169;
+      --danger: #e53e3e;
+      --primary: #3182ce;
+      --info: #3182ce;
+    }
+
     * {
       box-sizing: border-box;
-      margin: 0;
-      padding: 0;
     }
 
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-        Roboto, sans-serif;
-      background: #f7fafc;
-      color: #1a202c;
-      padding: 16px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      margin: 0;
+      padding: 12px;
+      color: var(--text-main);
     }
 
-    .container {
-      max-width: 1100px;
+    #container {
+      max-width: 1200px;
+      width: 100%;
       margin: 0 auto;
-      background: #ffffff;
-      border-radius: 12px;
-      box-shadow: 0 2px 12px rgba(15, 23, 42, 0.1);
-      padding: 16px;
+      background: var(--card-bg);
+      border-radius: 10px;
+      padding: 16px 18px;
+      box-shadow: var(--shadow);
     }
 
     h1 {
-      font-size: 1.2rem;
-      margin-bottom: 8px;
+      font-size: 1.3rem;
+      margin: 0 0 6px;
     }
 
     .subtitle {
-      font-size: 0.85rem;
-      color: #4a5568;
-      margin-bottom: 12px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 10px;
     }
 
-    .filters {
+    /* Filters */
+    .filters-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
       margin-bottom: 12px;
-      align-items: center;
     }
 
-    .filters select,
-    .filters input,
-    .filters button {
-      font-size: 0.8rem;
-      padding: 6px 8px;
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+    }
+
+    .filter-group label {
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    select {
+      padding: 4px 8px;
       border-radius: 6px;
-      border: 1px solid #e2e8f0;
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
       background: #f9fafb;
     }
 
-    .filters button {
-      background: #3182ce;
-      color: #fff;
-      border: none;
-      cursor: pointer;
+    /* Status badge + summary */
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
     }
 
-    .table-wrapper {
-      width: 100%;
-      overflow-x: auto;
-      border: 1px solid #e2e8f0;
+    #statusSummary {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .auto-refresh-text {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Table wrapper */
+    #tableWrapper {
+      margin-top: 10px;
+      max-height: 480px;
+      overflow: auto;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      max-height: 70vh;
-      overflow-y: auto;
+      background: #ffffff;
+      -webkit-overflow-scrolling: touch;
+      display: none;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: 0.8rem;
+      min-width: 780px;
     }
 
     thead {
@@ -89,331 +128,262 @@
     th,
     td {
       padding: 6px 8px;
-      border-bottom: 1px solid #e2e8f0;
+      border-bottom: 1px solid #edf2f7;
       text-align: left;
-      white-space: nowrap;
     }
 
-    th {
-      font-weight: 600;
-      font-size: 0.78rem;
-      color: #4a5568;
+    th:nth-child(4),
+    th:nth-child(5),
+    th:nth-child(6),
+    td:nth-child(4),
+    td:nth-child(5),
+    td:nth-child(6) {
+      text-align: right;
     }
 
-    tr:nth-child(even) td {
-      background: #f9fafb;
+    input[type="number"] {
+      width: 80px;
+      padding: 2px 4px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      text-align: right;
+      font-size: 0.8rem;
     }
 
-    .badge {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 999px;
-      font-size: 0.7rem;
+    td:nth-child(2) {
       font-weight: 500;
     }
 
-    .badge-pending {
-      background: #fed7d7;
-      color: #9b2c2c;
+    td:nth-child(3) {
+      max-width: 250px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .badge-partial {
-      background: #fefcbf;
-      color: #744210;
-    }
-
-    .badge-fulfilled {
-      background: #c6f6d5;
-      color: #22543d;
-    }
-
-    .qty-input {
-      width: 70px;
-      padding: 4px 6px;
-      font-size: 0.78rem;
-      border-radius: 6px;
-      border: 1px solid #cbd5e0;
-    }
-
-    .btn-small {
+    .action-btn {
       padding: 4px 8px;
       font-size: 0.75rem;
       border-radius: 6px;
       border: none;
       cursor: pointer;
+      white-space: nowrap;
     }
 
-    .btn-update {
-      background: #38a169;
-      color: #fff;
+    .btn-complete {
+      background: var(--accent);
+      color: #ffffff;
     }
 
-    .btn-refresh {
-      background: #4a5568;
-      color: #fff;
+    .btn-complete:hover {
+      filter: brightness(0.95);
     }
 
-    .status-bar {
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.7rem;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .tag-pending {
+      background: #fefcbf;
+      color: #b7791f;
+    }
+
+    .tag-inprogress {
+      background: #bee3f8;
+      color: #2b6cb0;
+    }
+
+    .tag-completed {
+      background: #c6f6d5;
+      color: #2f855a;
+    }
+
+    #loadingMsg,
+    #emptyMsg,
+    #errorMsg {
       margin-top: 8px;
-      font-size: 0.78rem;
-      color: #4a5568;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      display: none;
     }
 
+    #loadingMsg {
+      background: #ebf8ff;
+      border: 1px solid #bee3f8;
+      color: #2b6cb0;
+      display: block; /* default while loading */
+    }
+
+    #emptyMsg {
+      background: #fefcbf;
+      border: 1px solid #faf089;
+      color: #744210;
+    }
+
+    #errorMsg {
+      background: #fed7d7;
+      border: 1px solid #feb2b2;
+      color: #9b2c2c;
+    }
+
+    /* Tablet */
+    @media (max-width: 900px) {
+      #container {
+        padding: 14px 12px;
+        border-radius: 8px;
+      }
+
+      table {
+        min-width: 680px;
+      }
+    }
+
+    /* Mobile */
     @media (max-width: 640px) {
-      .container {
-        padding: 12px;
+      body {
+        padding: 8px;
       }
 
-      h1 {
-        font-size: 1rem;
+      #container {
+        padding: 12px 10px;
+        border-radius: 6px;
+        box-shadow: none;
       }
 
-      .filters {
+      .filters-row {
         flex-direction: column;
         align-items: flex-start;
       }
 
-      .filters > * {
+      .top-row {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      #tableWrapper {
+        max-height: none;
+        margin-top: 8px;
+      }
+
+      table {
+        font-size: 0.78rem;
+        min-width: 100%;
+      }
+    }
+
+    /* Very small screens: card layout */
+    @media (max-width: 520px) {
+      thead {
+        display: none;
+      }
+
+      table,
+      tbody,
+      tr,
+      td {
+        display: block;
         width: 100%;
       }
 
-      .qty-input {
-        width: 60px;
+      tr {
+        margin-bottom: 10px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 6px;
+      }
+
+      td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 6px;
+      }
+
+      td::before {
+        content: attr(data-label);
+        font-weight: 500;
+        color: var(--text-muted);
+        margin-right: 10px;
+        flex: 0 0 45%;
+        text-align: left;
+      }
+
+      td:nth-child(1)::before { content: "S.No"; }
+      td:nth-child(2)::before { content: "SKU"; }
+      td:nth-child(3)::before { content: "Product"; }
+      td:nth-child(4)::before { content: "Assigned"; }
+      td:nth-child(5)::before { content: "Picked"; }
+      td:nth-child(6)::before { content: "Remaining"; }
+      td:nth-child(7)::before { content: "Assignee"; }
+      td:nth-child(8)::before { content: "Task Status"; }
+      td:nth-child(9)::before { content: "Actions"; }
+
+      td:nth-child(3) {
+        max-width: none;
+        white-space: normal;
+      }
+
+      input[type="number"] {
+        width: 70px;
       }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Another Office Picklist</h1>
+  <div id="container">
+    <h1>Assigned Picklist Tasks</h1>
     <div class="subtitle">
-      See all products assigned from main warehouse. Update how many units
-      you brought and mark tasks fulfilled.
+      Your team can see all SKUs assigned from main picklists and mark them as picked / completed here.
+      This list auto-refreshes and filters on change.
     </div>
 
-    <div class="filters">
-      <select id="statusFilter">
-        <option value="">All statuses</option>
-        <option value="pending">Pending</option>
-        <option value="partial">Partial</option>
-        <option value="fulfilled">Fulfilled</option>
-      </select>
-
-      <select id="dateRange">
-        <option value="today">Today</option>
-        <option value="yesterday">Yesterday</option>
-        <option value="7d">Last 7 days</option>
-        <option value="30d">Last 30 days</option>
-        <option value="all">All time</option>
-      </select>
-
-      <button id="applyFilters">Apply</button>
-      <button id="refreshBtn" class="btn-refresh">Refresh</button>
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="statusFilter">Task Status</label>
+        <select id="statusFilter">
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="in-progress">In-Progress</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
     </div>
 
-    <div class="table-wrapper">
+    <div class="top-row">
+      <div id="statusSummary">Loading tasks...</div>
+      <div class="auto-refresh-text">Auto-refresh running (every 30 seconds).</div>
+    </div>
+
+    <div id="loadingMsg">Loading transfer tasks...</div>
+    <div id="errorMsg"></div>
+    <div id="emptyMsg">No tasks found. Ask main office to assign some SKUs first.</div>
+
+    <div id="tableWrapper">
       <table>
         <thead>
           <tr>
-            <th>#</th>
-            <th>Picklist ID</th>
+            <th>S.No</th>
             <th>SKU</th>
             <th>Product</th>
-            <th>Assigned Qty</th>
-            <th>Brought / Fulfilled Qty</th>
+            <th>Assigned</th>
+            <th>Picked</th>
             <th>Remaining</th>
-            <th>Status</th>
-            <th>Update</th>
+            <th>Assignee</th>
+            <th>Task Status</th>
+            <th>Actions</th>
           </tr>
         </thead>
-        <tbody id="tasksBody">
-          <!-- rows injected via JS -->
-        </tbody>
+        <tbody id="taskBody"></tbody>
       </table>
     </div>
-
-    <div class="status-bar" id="statusBar"></div>
   </div>
 
-  <script>
-    const statusFilterEl = document.getElementById("statusFilter");
-    const dateRangeEl = document.getElementById("dateRange");
-    const applyFiltersBtn = document.getElementById("applyFilters");
-    const refreshBtn = document.getElementById("refreshBtn");
-    const tasksBody = document.getElementById("tasksBody");
-    const statusBar = document.getElementById("statusBar");
-
-    function getRangeTimestamps(rangeKey) {
-      const now = new Date();
-      const end = new Date(now);
-      let start = null;
-
-      if (rangeKey === "today") {
-        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      } else if (rangeKey === "yesterday") {
-        const y = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        y.setDate(y.getDate() - 1);
-        start = y;
-        end.setFullYear(y.getFullYear(), y.getMonth(), y.getDate());
-        end.setHours(23, 59, 59, 999);
-      } else if (rangeKey === "7d") {
-        start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      } else if (rangeKey === "30d") {
-        start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      } else {
-        // all
-        return { from: null, to: null };
-      }
-
-      return { from: start.getTime(), to: end.getTime() };
-    }
-
-    async function loadTasks() {
-      const status = statusFilterEl.value;
-      const rangeKey = dateRangeEl.value;
-      const { from, to } = getRangeTimestamps(rangeKey);
-
-      const params = new URLSearchParams();
-      if (status) params.set("status", status);
-      if (from) params.set("from", String(from));
-      if (to) params.set("to", String(to));
-
-      const url = "/transfer-tasks" + (params.toString() ? "?" + params.toString() : "");
-
-      statusBar.textContent = "Loading tasks...";
-      tasksBody.innerHTML = "";
-
-      try {
-        const res = await fetch(url);
-        const data = await res.json();
-
-        if (!res.ok) {
-          statusBar.textContent = "Failed to load tasks: " + (data.error || "Unknown error");
-          return;
-        }
-
-        if (!Array.isArray(data) || data.length === 0) {
-          statusBar.textContent = "No tasks found for selected filters.";
-          return;
-        }
-
-        renderTasks(data);
-        statusBar.textContent = `Loaded ${data.length} task(s).`;
-      } catch (err) {
-        console.error(err);
-        statusBar.textContent = "Error loading tasks.";
-      }
-    }
-
-    function statusBadge(status) {
-      const span = document.createElement("span");
-      span.classList.add("badge");
-      if (status === "fulfilled") span.classList.add("badge-fulfilled");
-      else if (status === "partial") span.classList.add("badge-partial");
-      else span.classList.add("badge-pending");
-
-      span.textContent =
-        status === "fulfilled"
-          ? "Fulfilled"
-          : status === "partial"
-          ? "Partial"
-          : "Pending";
-      return span;
-    }
-
-    function renderTasks(list) {
-      tasksBody.innerHTML = "";
-
-      list.forEach((task, index) => {
-        const tr = document.createElement("tr");
-
-        const assigned = Number(task.assignedQty || 0);
-        const fulfilled = Number(task.fulfilledQty || 0);
-        const remaining = Math.max(assigned - fulfilled, 0);
-
-        const tdIndex = document.createElement("td");
-        tdIndex.textContent = String(index + 1);
-
-        const tdPicklist = document.createElement("td");
-        tdPicklist.textContent = task.picklistId || "-";
-
-        const tdSku = document.createElement("td");
-        tdSku.textContent = task.sku || "-";
-
-        const tdProduct = document.createElement("td");
-        tdProduct.textContent = task.product || "-";
-
-        const tdAssigned = document.createElement("td");
-        tdAssigned.textContent = assigned;
-
-        const tdFulfilled = document.createElement("td");
-        const input = document.createElement("input");
-        input.type = "number";
-        input.min = "0";
-        input.step = "1";
-        input.value = fulfilled;
-        input.className = "qty-input";
-        tdFulfilled.appendChild(input);
-
-        const tdRemaining = document.createElement("td");
-        tdRemaining.textContent = remaining;
-
-        const tdStatus = document.createElement("td");
-        tdStatus.appendChild(statusBadge(task.status || "pending"));
-
-        const tdUpdate = document.createElement("td");
-        const btn = document.createElement("button");
-        btn.textContent = "Update";
-        btn.className = "btn-small btn-update";
-        btn.addEventListener("click", async () => {
-          const newVal = Number(input.value);
-          if (Number.isNaN(newVal) || newVal < 0) {
-            alert("Please enter a valid non-negative number.");
-            return;
-          }
-
-          try {
-            const res = await fetch(`/transfer-tasks/${task.id}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fulfilledQty: newVal }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-              alert("Failed to update task: " + (data.error || "Unknown"));
-              return;
-            }
-
-            alert("Task updated. Status: " + data.status);
-            loadTasks();
-          } catch (err) {
-            console.error(err);
-            alert("Error updating task.");
-          }
-        });
-        tdUpdate.appendChild(btn);
-
-        tr.appendChild(tdIndex);
-        tr.appendChild(tdPicklist);
-        tr.appendChild(tdSku);
-        tr.appendChild(tdProduct);
-        tr.appendChild(tdAssigned);
-        tr.appendChild(tdFulfilled);
-        tr.appendChild(tdRemaining);
-        tr.appendChild(tdStatus);
-        tr.appendChild(tdUpdate);
-
-        tasksBody.appendChild(tr);
-      });
-    }
-
-    applyFiltersBtn.addEventListener("click", loadTasks);
-    refreshBtn.addEventListener("click", loadTasks);
-
-    // Default: show today's pending tasks
-    statusFilterEl.value = "pending";
-    dateRangeEl.value = "today";
-    loadTasks();
-  </script>
+  <script src="office-picklist.js"></script>
 </body>
 </html>
