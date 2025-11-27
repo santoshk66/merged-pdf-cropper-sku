@@ -344,13 +344,29 @@ function renderTable() {
       </td>
       <td data-label="Remaining">${remaining}</td>
       <td data-label="Status" style="color:${color}; font-weight:500;">${status}</td>
+      <td data-label="Other Office">
+        <button type="button" class="assign-btn" data-assign-index="${index}">
+          Assign
+        </button>
+      </td>
     `;
 
     bodyEl.appendChild(tr);
   });
 
+  // picked qty input events
   bodyEl.querySelectorAll("input[type=number]").forEach((input) => {
     input.addEventListener("change", onPickedChange);
+  });
+
+  // assign button events
+  bodyEl.querySelectorAll(".assign-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.getAttribute("data-assign-index"));
+      if (!Number.isNaN(idx) && picklistItems[idx]) {
+        assignToOtherOffice(picklistId, picklistItems[idx]);
+      }
+    });
   });
 
   const overall = calcOverallStatus(picklistItems);
@@ -366,6 +382,69 @@ function renderTable() {
   }
 
   setStatusBadge(overall, bg, color);
+}
+
+// ---------- Assign some qty to another office ----------
+async function assignToOtherOffice(currentPicklistId, row) {
+  if (!currentPicklistId) {
+    alert("No picklist selected.");
+    return;
+  }
+
+  const required = Number(row.requiredQty) || 0;
+  const picked = Number(row.pickedQty) || 0;
+  const remaining = Number(row.remaining != null ? row.remaining : required - picked) || 0;
+
+  if (remaining <= 0) {
+    alert("No remaining quantity to assign for this SKU.");
+    return;
+  }
+
+  const defaultQty = remaining;
+  const input = prompt(
+    `How many units of SKU ${row.sku} do you want from another office? (Remaining: ${remaining})`,
+    String(defaultQty)
+  );
+
+  if (input === null) return; // cancelled
+
+  const qty = Number(input);
+  if (!qty || qty <= 0) {
+    alert("Please enter a valid quantity greater than 0.");
+    return;
+  }
+  if (qty > remaining) {
+    alert(`You cannot assign more than remaining quantity (${remaining}).`);
+    return;
+  }
+
+  try {
+    const res = await fetch("/transfer-tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        picklistId: currentPicklistId,
+        sku: row.sku,
+        product: row.product || "",
+        assignedQty: qty,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert("Failed to assign to other office: " + (data.error || "Unknown"));
+      return;
+    }
+
+    alert(
+      `Assigned ${qty} units of ${row.sku} to other office.\nTask ID: ${data.id}`
+    );
+    // If later you want, you can also auto-open office-picklist page:
+    // window.open("office-picklist.html", "_blank");
+  } catch (err) {
+    console.error(err);
+    alert("Error assigning to other office.");
+  }
 }
 
 // ---------- Picked qty change ----------
