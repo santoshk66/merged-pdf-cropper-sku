@@ -2,10 +2,27 @@
 import { parse } from "csv-parse/sync";
 
 /**
+ * Safely get a field from a CSV record with multiple possible header names.
+ */
+function getField(record, names) {
+  for (const name of names) {
+    if (name in record && record[name] != null) {
+      return record[name];
+    }
+  }
+  return "";
+}
+
+/**
  * Flipkart Order CSV:
- * Build map: Order Id -> full row
+ * Build map: Order Id -> array of rows
  *
- * Expected header: "Order Id"
+ * Expected headers at minimum:
+ *  - "Order Id"
+ *  - optionally "Tracking ID"
+ *  - "SKU"
+ *  - "Quantity"/"Qty"
+ *  - "Product"/"Product Name"/"Description"
  */
 export function buildOrderMapFromCSV(buffer) {
   const records = parse(buffer, {
@@ -14,52 +31,36 @@ export function buildOrderMapFromCSV(buffer) {
     trim: true,
   });
 
+  // orderId -> [record, ...]
   const orderMap = {};
 
   for (const record of records) {
-    const orderId = record["Order Id"]?.toString().trim();
-    if (orderId) {
-      orderMap[orderId] = record;
+    const orderIdRaw = getField(record, ["Order Id", "ORDER ID", "OrderID"]);
+    const orderId = orderIdRaw?.toString().trim();
+    if (!orderId) continue;
+
+    if (!orderMap[orderId]) {
+      orderMap[orderId] = [];
     }
+    orderMap[orderId].push(record);
   }
 
   return orderMap;
 }
 
 /**
- * SKU Correction CSV (old sku,new sku):
- *
- * Headers (case-insensitive):
- *   "old sku"
- *   "new sku"
- *
- * Example:
- *   old sku,new sku
- *   A-GrouK8Mic,A-GrouK8Mic-NEW
- *
- * Returns: { [oldSku]: newSku }
+ * SKU correction CSV:
+ *  - columns: old sku,new sku  (case-insensitive)
+ * Returns: { oldSku -> newSku }
  */
 export function buildSkuCorrectionMapFromCSV(buffer) {
   const records = parse(buffer, {
     columns: true,
     skip_empty_lines: true,
-    relax_column_count: true,
-    relax_column_count_less: true,
     trim: true,
   });
 
   const skuMap = {};
-
-  const getField = (record, patterns) => {
-    const keys = Object.keys(record);
-    for (const key of keys) {
-      const normalizedKey = key.toLowerCase().trim();
-      if (patterns.includes(normalizedKey)) {
-        return record[key];
-      }
-    }
-    return "";
-  };
 
   for (const record of records) {
     const oldSkuRaw = getField(record, ["old sku", "old_sku", "oldsku"]);
