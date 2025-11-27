@@ -1,3 +1,5 @@
+// public/office-picklist.js
+
 let allTasks = [];
 let filteredTasks = [];
 
@@ -49,7 +51,7 @@ function formatStatusTag(status) {
   return `<span class="tag tag-pending">Pending</span>`;
 }
 
-// ---------- Fetch tasks from server (no status filter in URL) ----------
+// ---------- Fetch tasks from server (NO status param) ----------
 async function loadTasksFromServer() {
   if (isLoading) return;
   showError("");
@@ -65,7 +67,12 @@ async function loadTasksFromServer() {
       throw new Error(msg);
     }
 
-    allTasks = Array.isArray(data) ? data : [];
+    // 🔑 Normalize ID field so we ALWAYS have task._id
+    allTasks = (Array.isArray(data) ? data : []).map((t) => {
+      const _id = t.id || t.taskId || t.transferId || t.docId || null;
+      return { ...t, _id };
+    });
+
     lastFetchTime = new Date();
     applyFilterAndRender();
   } catch (err) {
@@ -101,14 +108,25 @@ function applyFilterAndRender() {
         return st === "in-progress" || st === "inprogress";
       }
       if (statusFilter === "completed") {
-        return st === "completed" || st === "complete" || st === "done";
+        return (
+          st === "completed" ||
+          st === "complete" ||
+          st === "done"
+        );
       }
       return true;
     });
   }
 
   // Sort: pending -> in-progress -> completed, then newest first
-  const statusOrder = { pending: 0, "in-progress": 1, inprogress: 1, completed: 2, complete: 2, done: 2 };
+  const statusOrder = {
+    pending: 0,
+    "in-progress": 1,
+    inprogress: 1,
+    completed: 2,
+    complete: 2,
+    done: 2,
+  };
   filteredTasks.sort((a, b) => {
     const sa = statusOrder[(a.status || "pending").toLowerCase()] ?? 0;
     const sb = statusOrder[(b.status || "pending").toLowerCase()] ?? 0;
@@ -184,7 +202,7 @@ function renderTable() {
           type="number"
           min="0"
           max="${assigned}"
-          data-id="${task.id || task.taskId || ''}"
+          data-id="${task._id || ""}"
           data-index="${index}"
           value="${picked}"
         />
@@ -196,7 +214,7 @@ function renderTable() {
         <button
           type="button"
           class="action-btn btn-complete"
-          data-complete-id="${task.id || task.taskId || ''}"
+          data-complete-id="${task._id || ""}"
           data-complete-index="${index}"
         >
           Mark Done
@@ -221,7 +239,11 @@ function renderTable() {
 async function onPickedChange(e) {
   const id = e.target.getAttribute("data-id");
   const localIndex = Number(e.target.getAttribute("data-index"));
-  if (!id || Number.isNaN(localIndex) || !filteredTasks[localIndex]) return;
+  if (!id || Number.isNaN(localIndex) || !filteredTasks[localIndex]) {
+    console.warn("Missing id or index on picked change", { id, localIndex });
+    alert("Cannot update this row because task id is missing. Check API data.");
+    return;
+  }
 
   let val = Number(e.target.value);
   if (Number.isNaN(val) || val < 0) val = 0;
@@ -244,12 +266,12 @@ async function onPickedChange(e) {
       status: newStatus,
     });
 
-    // Also update in memory
+    // Update in memory
     task.pickedQty = val;
     task.remaining = remaining;
     task.status = newStatus;
 
-    const global = allTasks.find((t) => (t.id || t.taskId) === (task.id || task.taskId));
+    const global = allTasks.find((t) => t._id === task._id);
     if (global) {
       global.pickedQty = val;
       global.remaining = remaining;
@@ -259,15 +281,19 @@ async function onPickedChange(e) {
     applyFilterAndRender();
   } catch (err) {
     console.error("Failed to update picked qty:", err);
-    alert("Failed to update picked quantity. Please try again.");
+    alert("Failed to update picked quantity: " + (err.message || "Unknown error"));
   }
 }
 
-// ---------- Mark task as done (picked = assigned, status=completed) ----------
+// ---------- Mark task as done ----------
 async function onMarkDoneClick(e) {
   const id = e.currentTarget.getAttribute("data-complete-id");
   const localIndex = Number(e.currentTarget.getAttribute("data-complete-index"));
-  if (!id || Number.isNaN(localIndex) || !filteredTasks[localIndex]) return;
+  if (!id || Number.isNaN(localIndex) || !filteredTasks[localIndex]) {
+    console.warn("Missing id or index on mark done", { id, localIndex });
+    alert("Cannot complete this row because task id is missing. Check API data.");
+    return;
+  }
 
   const task = filteredTasks[localIndex];
   const assigned = Number(task.assignedQty) || 0;
@@ -296,7 +322,7 @@ async function onMarkDoneClick(e) {
     task.remaining = 0;
     task.status = "completed";
 
-    const global = allTasks.find((t) => (t.id || t.taskId) === (task.id || task.taskId));
+    const global = allTasks.find((t) => t._id === task._id);
     if (global) {
       global.pickedQty = assigned;
       global.remaining = 0;
@@ -306,34 +332,44 @@ async function onMarkDoneClick(e) {
     applyFilterAndRender();
   } catch (err) {
     console.error("Failed to mark task done:", err);
-    alert("Failed to mark task as completed. Please try again.");
+    alert("Failed to mark task as completed: " + (err.message || "Unknown error"));
   }
 }
 
 // ---------- Update task on server ----------
 async function updateTaskOnServer(id, payload) {
-  const res = await fetch(`/transfer-tasks/${encodeURIComponent(id)}`, {
+  const url = `/transfer-tasks/${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
-  const data = await res.json().catch(() => ({}));
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (e) {
+    // ignore JSON parse error
+  }
+
   if (!res.ok) {
+    console.error("Update error response:", data);
     throw new Error(data.error || `Update failed with status ${res.status}`);
   }
+
+  return data;
 }
 
 // ---------- Auto-refresh (every 30s) ----------
 function startAutoRefresh() {
   setInterval(() => {
     loadTasksFromServer();
-  }, 30000); // 30 seconds
+  }, 30000);
 }
 
 // ---------- Events ----------
 statusFilterEl.addEventListener("change", () => {
-  applyFilterAndRender(); // no new server call, client-side filter
+  applyFilterAndRender();
 });
 
 // ---------- Initial load ----------
