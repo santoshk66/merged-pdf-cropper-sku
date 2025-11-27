@@ -4,6 +4,8 @@ let allTasks = [];
 let filteredTasks = [];
 
 const statusFilterEl = document.getElementById("statusFilter");
+const dateFilterEl = document.getElementById("dateFilter");
+
 const taskBodyEl = document.getElementById("taskBody");
 const tableWrapperEl = document.getElementById("tableWrapper");
 
@@ -51,6 +53,47 @@ function formatStatusTag(status) {
   return `<span class="tag tag-pending">Pending</span>`;
 }
 
+// ---------- Date range helper ----------
+function getRangeForFilter(key) {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    23,
+    59,
+    59,
+    999
+  );
+
+  if (key === "today") {
+    return { from: todayStart.getTime(), to: todayEnd.getTime() };
+  }
+
+  if (key === "yesterday") {
+    const yStart = new Date(todayStart);
+    yStart.setDate(yStart.getDate() - 1);
+    const yEnd = new Date(todayEnd);
+    yEnd.setDate(yEnd.getDate() - 1);
+    return { from: yStart.getTime(), to: yEnd.getTime() };
+  }
+
+  if (key === "last7") {
+    const start = new Date(todayStart);
+    start.setDate(start.getDate() - 6); // today + last 6 days
+    return { from: start.getTime(), to: todayEnd.getTime() };
+  }
+
+  if (key === "thisMonth") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: start.getTime(), to: todayEnd.getTime() };
+  }
+
+  // "all"
+  return { from: null, to: null };
+}
+
 // ---------- Fetch tasks from server ----------
 async function loadTasksFromServer() {
   if (isLoading) return;
@@ -67,7 +110,6 @@ async function loadTasksFromServer() {
       throw new Error(msg);
     }
 
-    // Normalize ID → _id
     allTasks = (Array.isArray(data) ? data : []).map((t) => {
       const _id = t.id || t.taskId || t.transferId || t.docId || null;
       return { ...t, _id };
@@ -86,35 +128,42 @@ async function loadTasksFromServer() {
   }
 }
 
-// ---------- Apply status filter ----------
+// ---------- Apply date + status filters ----------
 function applyFilterAndRender() {
   const statusFilter = statusFilterEl.value;
+  const dateKey = dateFilterEl.value;
+  const { from, to } = getRangeForFilter(dateKey);
 
-  if (!allTasks.length) {
-    filteredTasks = [];
-    renderTable();
-    return;
+  let list = [...allTasks];
+
+  // Date filter (uses createdAt, or assignedAt/updatedAt backup)
+  if (from && to) {
+    list = list.filter((t) => {
+      const ts =
+        t.createdAt ||
+        t.assignedAt ||
+        t.updatedAt ||
+        null;
+      if (!ts) return false;
+      const tNum = Number(ts);
+      return tNum >= from && tNum <= to;
+    });
   }
 
-  if (statusFilter === "all") {
-    filteredTasks = [...allTasks];
-  } else {
-    filteredTasks = allTasks.filter((t) => {
-      const st = (t.status || "pending").toLowerCase();
-      if (statusFilter === "pending") {
-        return st === "pending";
-      }
-      if (statusFilter === "in-progress") {
-        return st === "in-progress" || st === "inprogress";
-      }
-      if (statusFilter === "completed") {
-        return (
-          st === "completed" ||
-          st === "complete" ||
-          st === "done"
-        );
-      }
-      return true;
+  // Status filter
+  if (statusFilter === "pending") {
+    list = list.filter(
+      (t) => (t.status || "pending").toLowerCase() === "pending"
+    );
+  } else if (statusFilter === "in-progress") {
+    list = list.filter((t) => {
+      const s = (t.status || "").toLowerCase();
+      return s === "in-progress" || s === "inprogress";
+    });
+  } else if (statusFilter === "completed") {
+    list = list.filter((t) => {
+      const s = (t.status || "").toLowerCase();
+      return s === "completed" || s === "complete" || s === "done";
     });
   }
 
@@ -127,13 +176,14 @@ function applyFilterAndRender() {
     done: 2,
   };
 
-  filteredTasks.sort((a, b) => {
+  list.sort((a, b) => {
     const sa = statusOrder[(a.status || "pending").toLowerCase()] ?? 0;
     const sb = statusOrder[(b.status || "pending").toLowerCase()] ?? 0;
     if (sa !== sb) return sa - sb;
     return (b.createdAt || 0) - (a.createdAt || 0);
-  });
+  }).reverse(); // newest first
 
+  filteredTasks = list;
   renderTable();
 }
 
@@ -153,7 +203,7 @@ function renderTable() {
 
   if (!visible) {
     tableWrapperEl.style.display = "none";
-    showEmpty(true, "No tasks for selected status.");
+    showEmpty(true, "No tasks for selected filters.");
     statusSummaryEl.textContent = `Tasks loaded: ${total} total • 0 visible (filter applied).`;
     return;
   }
@@ -259,10 +309,9 @@ async function onPickedChange(e) {
     remaining === 0 ? "completed" : val > 0 ? "in-progress" : "pending";
 
   try {
-    // 🔑 Also send fulfilledQty so backend validator is happy
     await updateTaskOnServer(id, {
       pickedQty: val,
-      fulfilledQty: val,
+      fulfilledQty: val,       // keep backend happy
       remaining,
       status: newStatus,
     });
@@ -312,7 +361,6 @@ async function onMarkDoneClick(e) {
   }
 
   try {
-    // 🔑 Here too: set fulfilledQty to assigned
     await updateTaskOnServer(id, {
       pickedQty: assigned,
       fulfilledQty: assigned,
@@ -369,6 +417,10 @@ function startAutoRefresh() {
 
 // ---------- Events ----------
 statusFilterEl.addEventListener("change", () => {
+  applyFilterAndRender();
+});
+
+dateFilterEl.addEventListener("change", () => {
   applyFilterAndRender();
 });
 
