@@ -2,7 +2,7 @@ let pdfDoc = null;
 let pageNum = 1;
 
 // ✅ Fixed crop dimensions (your original dimensions)
-const USE_FIXED_DIMENSIONS = true;  // keep true for auto mode
+const USE_FIXED_DIMENSIONS = true; // keep true for auto mode
 
 const FIXED_LABEL_BOX = {
   x: 189.6,
@@ -27,7 +27,8 @@ let startX, startY;
 let pdfFilename = null;
 let mappingFilename = null;
 let orderIdsByPage = [];
-let removeDuplicates = false; // NEW FLAG
+let trackingIdsByPage = []; // 🔹 NEW
+let removeDuplicates = false; // flag for PDF duplicate orderIds
 
 const canvas = document.getElementById("pdfCanvas");
 const ctx = canvas.getContext("2d");
@@ -294,31 +295,36 @@ async function renderFirstPage() {
   await page.render({ canvasContext: ctx, viewport }).promise;
 }
 
-// ===== Extract Order Id from each page =====
+// ===== Extract Order Id AND Tracking Id from each page =====
 async function extractOrderIdsFromPdf(pdfFile) {
   const arrayBuffer = await pdfFile.arrayBuffer();
 
   pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const totalPages = pdfDoc.numPages;
   orderIdsByPage = [];
+  trackingIdsByPage = [];
 
   for (let i = 1; i <= totalPages; i++) {
     const page = await pdfDoc.getPage(i);
     const textContent = await page.getTextContent();
     const fullText = textContent.items.map((it) => it.str).join(" ");
 
-    // UPDATED: detect ODxxxx... even without "Order Id"
-    const match = fullText.match(/OD\d{9,}/i);
-    if (match) {
-      orderIdsByPage.push(match[0]);
-    } else {
-      orderIdsByPage.push(null);
-    }
+    // Order Id pattern: ODxxxxxxxxx...
+    const orderMatch = fullText.match(/OD\d{9,}/i);
+    const orderId = orderMatch ? orderMatch[0] : null;
+
+    // Tracking Id pattern: FMPP + digits
+    const trackingMatch = fullText.match(/FMPP\d{5,}/i);
+    const trackingId = trackingMatch ? trackingMatch[0] : null;
+
+    orderIdsByPage.push(orderId);
+    trackingIdsByPage.push(trackingId);
   }
 
   console.log("Detected orderIdsByPage:", orderIdsByPage);
+  console.log("Detected trackingIdsByPage:", trackingIdsByPage);
 
-  // === NEW: check duplicates
+  // === Check duplicate Order IDs in PDF (same label printed twice etc.) ===
   const seen = new Set();
   const dups = new Set();
 
@@ -364,14 +370,17 @@ uploadForm.addEventListener("submit", async (e) => {
   }
 
   try {
-    logStatus("🔍 Detecting Order IDs from PDF...");
+    logStatus("🔍 Detecting Order IDs & Tracking IDs from PDF...");
     setLoading(true, "Detecting orders from PDF...");
 
-    // Detect order IDs locally
+    // Detect order IDs & tracking IDs locally
     await extractOrderIdsFromPdf(pdfFile);
 
-    const detectedCount = orderIdsByPage.filter((id) => !!id).length;
-    logStatus(`✅ Detected ${detectedCount} Order IDs in PDF.`);
+    const detectedOrders = orderIdsByPage.filter((id) => !!id).length;
+    const detectedTracking = trackingIdsByPage.filter((id) => !!id).length;
+    logStatus(
+      `✅ Detected ${detectedOrders} Order IDs and ${detectedTracking} Tracking IDs in PDF.`
+    );
 
     if (!orderIdsByPage.some((id) => !!id)) {
       const proceed = confirm(
@@ -475,7 +484,8 @@ processBtn.addEventListener("click", async () => {
       labelBox,
       invoiceBox,
       orderIdsByPage,
-      removeDuplicates, // NEW
+      trackingIdsByPage, // 🔹 NEW
+      removeDuplicates,
     };
 
     logStatus("⚙️ Starting crop and PDF generation on server...");
@@ -496,11 +506,28 @@ processBtn.addEventListener("click", async () => {
       return;
     }
 
+    // 🔹 Show duplicate info from backend (CSV side)
+    if (Array.isArray(data.duplicateOrderIds) && data.duplicateOrderIds.length) {
+      logStatus(
+        "⚠️ Duplicate Order IDs in CSV: " +
+          data.duplicateOrderIds.join(", ")
+      );
+    }
+    if (
+      Array.isArray(data.duplicateTrackingIds) &&
+      data.duplicateTrackingIds.length
+    ) {
+      logStatus(
+        "⚠️ Duplicate Tracking IDs in CSV: " +
+          data.duplicateTrackingIds.join(", ")
+      );
+    }
+
     if (data.picklistId) {
       // store for picklist.html to use
       localStorage.setItem("current_picklist_id", data.picklistId);
       logStatus(`📋 Picklist created with ID: ${data.picklistId}`);
-      // optional: auto open picklist tab
+      // optional: open picklist dashboard
       window.open("/picklist.html", "_blank");
     } else {
       logStatus("ℹ️ No picklistId returned from server.");
