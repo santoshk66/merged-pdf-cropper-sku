@@ -176,9 +176,84 @@ async function reprint() {
   }
 }
 
-/* --------- init search-type toggle --------- */
+/* --------- OCR: read tracking IDs from uploaded image --------- */
+
+async function extractTrackingIdsFromImage() {
+  const fileInput = document.getElementById("imageInput");
+  if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+    setLog("Please select an image file first.", "warn");
+    return;
+  }
+
+  const file = fileInput.files[0];
+
+  if (typeof Tesseract === "undefined" || typeof Tesseract.recognize !== "function") {
+    setLog(
+      "OCR library (Tesseract.js) is not loaded. Please check your internet connection.",
+      "error"
+    );
+    return;
+  }
+
+  setLog("Reading tracking IDs from image... this may take a few seconds.", null);
+
+  try {
+    const result = await Tesseract.recognize(file, "eng", {
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    });
+
+    const rawText =
+      (result && result.data && result.data.text) ? result.data.text : "";
+
+    // Match IDs like FMPC5479637067, FMPP3562773840 etc.
+    const matches = Array.from(
+      rawText.matchAll(/\bFMP[PC]\d{6,}\b/gi)
+    ).map((m) => m[0].toUpperCase());
+
+    if (!matches.length) {
+      setLog(
+        "OCR completed, but no FMPP/FMPC tracking IDs were detected. Please ensure the screenshot is clear.",
+        "warn"
+      );
+      return;
+    }
+
+    const textarea = document.getElementById("ids");
+    const existing = textarea.value
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const merged = Array.from(new Set([...existing, ...matches]));
+    textarea.value = merged.join("\n");
+
+    // Force search type to "tracking"
+    const trackingRadio = document.querySelector(
+      "input[name='searchType'][value='tracking']"
+    );
+    if (trackingRadio) {
+      trackingRadio.checked = true;
+      updateIdsUI();
+    }
+
+    setLog(
+      `OCR completed. Found ${matches.length} tracking IDs and added them to the list.`,
+      "ok"
+    );
+  } catch (err) {
+    console.error(err);
+    setLog("OCR failed: " + err.message, "error");
+  }
+}
+
+/* --------- init search-type toggle + OCR button --------- */
 const searchTypeRadios = document.querySelectorAll("input[name='searchType']");
 searchTypeRadios.forEach((r) =>
   r.addEventListener("change", () => updateIdsUI())
 );
 updateIdsUI();
+
+const ocrButton = document.getElementById("btnOcrFromImage");
+if (ocrButton) {
+  ocrButton.addEventListener("click", extractTrackingIdsFromImage);
+}
