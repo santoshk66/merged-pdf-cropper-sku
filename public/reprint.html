@@ -37,6 +37,7 @@
       align-items: center;
       margin-bottom: 16px;
       gap: 12px;
+      flex-wrap: wrap;
     }
 
     .title {
@@ -183,6 +184,7 @@
       padding: 3px 8px;
       background: #e5f2ff;
       color: #1d4ed8;
+      white-space: nowrap;
     }
 
     #log {
@@ -239,11 +241,43 @@
     }
 
     @media (max-width: 640px) {
+      body {
+        padding: 16px;
+      }
       .card {
         padding: 16px;
+        box-shadow: 0 6px 20px rgba(15, 23, 42, 0.15);
       }
       .title {
         font-size: 18px;
+      }
+      .subtitle {
+        font-size: 12px;
+      }
+      textarea {
+        font-size: 12px;
+        min-height: 140px;
+      }
+      .badge {
+        font-size: 10px;
+      }
+    }
+
+    @media (max-width: 400px) {
+      body {
+        padding: 12px;
+      }
+      .card {
+        padding: 14px;
+      }
+      .actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .btn-primary,
+      .btn-secondary {
+        width: 100%;
+        justify-content: center;
       }
     }
   </style>
