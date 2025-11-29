@@ -176,7 +176,7 @@ async function reprint() {
   }
 }
 
-/* --------- OCR: read tracking IDs from uploaded image --------- */
+/* --------- OCR: read tracking IDs from uploaded image (robust) --------- */
 
 async function extractTrackingIdsFromImage() {
   const fileInput = document.getElementById("imageInput");
@@ -185,53 +185,65 @@ async function extractTrackingIdsFromImage() {
     return;
   }
 
+  if (typeof Tesseract === "undefined" || typeof Tesseract.recognize !== "function") {
+    setLog(
+      "OCR library (Tesseract.js) is not loaded. Please check your internet connection.",
+      "error"
+    );
+    return;
+  }
+
   const file = fileInput.files[0];
-  setLog("Enhancing image and reading tracking IDs... please wait.", null);
+  setLog("Reading tracking IDs from image... please wait.", null);
 
   try {
-    // Read image into a canvas for preprocessing
+    // Load into image
     const img = new Image();
     img.src = URL.createObjectURL(file);
-
     await img.decode();
 
+    // Upscale into canvas for better OCR
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
-
-    // Upscale image for better OCR accuracy
-    canvas.width = img.width * 2;
-    canvas.height = img.height * 2;
+    const scale = 2; // upscale factor
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    // Increase contrast
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    let d = imageData.data;
-    for (let i = 0; i < d.length; i += 4) {
-      let avg = (d[i] + d[i+1] + d[i+2]) / 3;
-      d[i] = d[i+1] = d[i+2] = avg > 140 ? 255 : 0; // thresholding
-    }
-    ctx.putImageData(imageData, 0, 0);
-
-    // Run OCR on enhanced image
+    // Run OCR on the upscaled image
     const result = await Tesseract.recognize(canvas.toDataURL("image/png"), "eng", {
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-      tessedit_pageseg_mode: 6,  // Assume block of text
+      tessedit_pageseg_mode: 6, // block of text
     });
 
-    const rawText = result.data.text.toUpperCase();
-
+    let rawText = (result && result.data && result.data.text) || "";
+    rawText = rawText.toUpperCase();
     console.log("RAW OCR TEXT:", rawText);
 
-    // VERY important: regex detects a wider range
-    const matches = Array.from(
-      rawText.matchAll(/F[MNVW][PCFD]\s*\d{6,}/g)
+    // 1) Primary pattern: a few letters + many digits (e.g. FMPC5476348135)
+    let matches = Array.from(
+      rawText.matchAll(/\b[A-Z]{3,6}\s*\d{6,}\b/g)
     ).map((m) => m[0].replace(/\s+/g, ""));
 
+    // 2) If still nothing, fallback to long digit sequences (11+ digits)
     if (!matches.length) {
-      setLog("OCR ran successfully but no tracking IDs were found. Try a brighter image.", "warn");
+      const digitMatches = Array.from(
+        rawText.matchAll(/\b\d{9,}\b/g)
+      ).map((m) => m[0]);
+
+      // if we find only numbers, we still push them as-is
+      matches = digitMatches;
+    }
+
+    if (!matches.length) {
+      setLog(
+        "OCR ran successfully but no tracking IDs were found in the text. Try a slightly clearer / zoomed screenshot.",
+        "warn"
+      );
       return;
     }
 
+    // Deduplicate + merge with existing textarea IDs
     const textarea = document.getElementById("ids");
     const existing = textarea.value
       .split(/\r?\n/)
@@ -241,12 +253,16 @@ async function extractTrackingIdsFromImage() {
     const merged = Array.from(new Set([...existing, ...matches]));
     textarea.value = merged.join("\n");
 
-    const trackingRadio = document.querySelector("input[name='searchType'][value='tracking']");
-    if (trackingRadio) trackingRadio.checked = true;
-
+    // Force search type to tracking
+    const trackingRadio = document.querySelector(
+      "input[name='searchType'][value='tracking']"
+    );
+    if (trackingRadio) {
+      trackingRadio.checked = true;
+    }
     updateIdsUI();
 
-    setLog(`OCR success! Found ${matches.length} tracking IDs.`, "ok");
+    setLog(`OCR success! Found ${matches.length} ID(s) and added to the list.`, "ok");
   } catch (err) {
     console.error(err);
     setLog("OCR failed: " + err.message, "error");
