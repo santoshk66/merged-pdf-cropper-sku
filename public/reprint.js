@@ -186,35 +186,49 @@ async function extractTrackingIdsFromImage() {
   }
 
   const file = fileInput.files[0];
-
-  if (typeof Tesseract === "undefined" || typeof Tesseract.recognize !== "function") {
-    setLog(
-      "OCR library (Tesseract.js) is not loaded. Please check your internet connection.",
-      "error"
-    );
-    return;
-  }
-
-  setLog("Reading tracking IDs from image... this may take a few seconds.", null);
+  setLog("Enhancing image and reading tracking IDs... please wait.", null);
 
   try {
-    const result = await Tesseract.recognize(file, "eng", {
+    // Read image into a canvas for preprocessing
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+
+    await img.decode();
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    // Upscale image for better OCR accuracy
+    canvas.width = img.width * 2;
+    canvas.height = img.height * 2;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    // Increase contrast
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      let avg = (d[i] + d[i+1] + d[i+2]) / 3;
+      d[i] = d[i+1] = d[i+2] = avg > 140 ? 255 : 0; // thresholding
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // Run OCR on enhanced image
+    const result = await Tesseract.recognize(canvas.toDataURL("image/png"), "eng", {
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+      tessedit_pageseg_mode: 6,  // Assume block of text
     });
 
-    const rawText =
-      (result && result.data && result.data.text) ? result.data.text : "";
+    const rawText = result.data.text.toUpperCase();
 
-    // Match IDs like FMPC5479637067, FMPP3562773840 etc.
+    console.log("RAW OCR TEXT:", rawText);
+
+    // VERY important: regex detects a wider range
     const matches = Array.from(
-      rawText.matchAll(/\bFMP[PC]\d{6,}\b/gi)
-    ).map((m) => m[0].toUpperCase());
+      rawText.matchAll(/F[MNVW][PCFD]\s*\d{6,}/g)
+    ).map((m) => m[0].replace(/\s+/g, ""));
 
     if (!matches.length) {
-      setLog(
-        "OCR completed, but no FMPP/FMPC tracking IDs were detected. Please ensure the screenshot is clear.",
-        "warn"
-      );
+      setLog("OCR ran successfully but no tracking IDs were found. Try a brighter image.", "warn");
       return;
     }
 
@@ -227,19 +241,12 @@ async function extractTrackingIdsFromImage() {
     const merged = Array.from(new Set([...existing, ...matches]));
     textarea.value = merged.join("\n");
 
-    // Force search type to "tracking"
-    const trackingRadio = document.querySelector(
-      "input[name='searchType'][value='tracking']"
-    );
-    if (trackingRadio) {
-      trackingRadio.checked = true;
-      updateIdsUI();
-    }
+    const trackingRadio = document.querySelector("input[name='searchType'][value='tracking']");
+    if (trackingRadio) trackingRadio.checked = true;
 
-    setLog(
-      `OCR completed. Found ${matches.length} tracking IDs and added them to the list.`,
-      "ok"
-    );
+    updateIdsUI();
+
+    setLog(`OCR success! Found ${matches.length} tracking IDs.`, "ok");
   } catch (err) {
     console.error(err);
     setLog("OCR failed: " + err.message, "error");
