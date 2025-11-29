@@ -312,12 +312,26 @@
       </label>
     </div>
 
-    <div>
+        <div>
       <label for="ids" id="idsLabel">Tracking IDs</label>
       <textarea id="ids" placeholder="Example:
 FMPP1234567
 FMPP7654321
 FMPP9998887"></textarea>
+    </div>
+
+    <!-- 🔹 NEW: Upload screenshot and read tracking IDs -->
+    <div class="field-row">
+      <div class="field-group">
+        <label for="imageInput">Or upload screenshot of Tracking IDs</label>
+        <input type="file" id="imageInput" accept="image/*" />
+        <div class="hint" style="font-size:12px;color:#6b7280;margin-top:4px;">
+          We will read FMPP / FMPC tracking IDs from the image and add them to the box above.
+        </div>
+        <button type="button" id="btnOcrFromImage" class="btn-secondary" style="margin-top:6px;">
+          📷 Read IDs from Image
+        </button>
+      </div>
     </div>
 
     <div class="field-row">
