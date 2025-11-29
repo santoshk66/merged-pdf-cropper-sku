@@ -175,14 +175,9 @@ app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
  *    labelBox: { x, y, width, height },
  *    invoiceBox: { x, y, width, height },
  *    orderIdsByPage:   [ "OD...", "OD...", ... ],
- *    trackingIdsByPage:[ "FMPP...", null, ... ],   // NEW
+ *    trackingIdsByPage:[ "FMPP...", null, ... ],
  *    removeDuplicates: boolean
  *  }
- *
- * Behaviour for duplicates:
- *  - If Order Id appears once in CSV → use that row (ignore tracking).
- *  - If Order Id appears multiple times in CSV → use Tracking ID to pick
- *    the correct row. If still ambiguous → round-robin through rows.
  */
 app.post("/crop", async (req, res) => {
   try {
@@ -244,7 +239,7 @@ app.post("/crop", async (req, res) => {
     if (mappingFilename) {
       const csvPath = path.join(UPLOAD_DIR, mappingFilename);
       const csvBuffer = await fsPromises.readFile(csvPath);
-      orderMap = buildOrderMapFromCSV(csvBuffer); // should be orderId -> [rows]
+      orderMap = buildOrderMapFromCSV(csvBuffer); // orderId -> [rows]
 
       for (const [orderId, rowsOrRow] of Object.entries(orderMap)) {
         const rows = Array.isArray(rowsOrRow) ? rowsOrRow : [rowsOrRow];
@@ -293,7 +288,6 @@ app.post("/crop", async (req, res) => {
     // ---------- 3) Picklist aggregation: finalSku -> { sku, qty, product } ----------
     const picklistMap = {};
 
-    // Build jobs array, with optional duplicate removal
     const jobs = [];
     const seenOrderIds = new Set();
     const orderUsageCount = {}; // for round-robin when one Order Id has multiple rows
@@ -319,12 +313,11 @@ app.post("/crop", async (req, res) => {
           : [rowsForOrderRaw];
 
         if (rowsForOrder.length === 1) {
-          // Simple: unique Order Id in CSV → ignore trackingId completely
+          // Unique orderId
           row = rowsForOrder[0];
         } else {
-          // 🔁 DUPLICATE Order Id in CSV → NOW we use Tracking ID
+          // Duplicate orderId -> use tracking or round robin
           if (trackingId && trackingMap[trackingId]) {
-            // Find rows which match both orderId & trackingId
             const candidates = trackingMap[trackingId].filter(
               (entry) => entry.orderId === orderId
             );
@@ -332,14 +325,12 @@ app.post("/crop", async (req, res) => {
             if (candidates.length === 1) {
               row = candidates[0].row;
             } else {
-              // Still ambiguous → round-robin over rowsForOrder
               const used = orderUsageCount[orderId] || 0;
               const idx = used % rowsForOrder.length;
               row = rowsForOrder[idx];
               orderUsageCount[orderId] = used + 1;
             }
           } else {
-            // No tracking ID / no match → round-robin
             const used = orderUsageCount[orderId] || 0;
             const idx = used % rowsForOrder.length;
             row = rowsForOrder[idx];
@@ -347,8 +338,7 @@ app.post("/crop", async (req, res) => {
           }
         }
       } else {
-        // Order Id missing or not in CSV.
-        // As per your requirement: DO NOT map by tracking-only here.
+        // orderId missing or not in CSV
         row = {};
       }
 
@@ -715,6 +705,49 @@ app.post("/crop", async (req, res) => {
       totalSkus,
     });
 
+    // -------- Save processed labels metadata (for reprint) --------
+    try {
+      const processedAt = now;
+      const processedDate = new Date(now).toISOString().split("T")[0];
+      const chunkSize = 400;
+
+      for (let i = 0; i < jobs.length; i += chunkSize) {
+        const batch = db.batch();
+        let ops = 0;
+
+        for (let j = i; j < Math.min(i + chunkSize, jobs.length); j++) {
+          const job = jobs[j];
+          // only store if we have some identifier
+          if (!job.orderId && !job.trackingId) continue;
+
+          const docRef = db.collection("processedLabels").doc();
+          batch.set(docRef, {
+            pdfFilename,
+            mappingFilename: mappingFilename || null,
+            pageIndex: job.pageIndex,
+            orderId: job.orderId || null,
+            trackingId: job.trackingId || null,
+            rawSku: job.rawSku || null,
+            finalSku: job.finalSku || null,
+            productName: job.productName || "",
+            labelBox: label,
+            invoiceBox: invoice,
+            picklistId,
+            processedAt,
+            processedDate,
+          });
+          ops++;
+        }
+
+        if (ops > 0) {
+          await batch.commit();
+        }
+      }
+    } catch (metaErr) {
+      console.error("Error saving processed label metadata:", metaErr);
+      // non-fatal – main crop still succeeds
+    }
+
     // -------- Respond --------
     res.json({
       zipUrl: `/outputs/${zipName}`,
@@ -820,6 +853,143 @@ app.post("/picklist/:id", async (req, res) => {
   } catch (err) {
     console.error("Error updating picklist:", err);
     res.status(500).json({ error: "Failed to update picklist" });
+  }
+});
+
+// ----------------- Reprint labels by trackingId -----------------
+/**
+ * POST /reprint-labels
+ * Body:
+ *  {
+ *    trackingIds: ["FMPP...", "FMPP..."],
+ *    date: "YYYY-MM-DD" // optional, defaults to today
+ *  }
+ */
+app.post("/reprint-labels", async (req, res) => {
+  try {
+    const { trackingIds, date } = req.body;
+
+    if (!trackingIds || !Array.isArray(trackingIds) || trackingIds.length === 0) {
+      return res.status(400).json({ error: "trackingIds must be a non-empty array" });
+    }
+
+    const searchDate = date || new Date().toISOString().split("T")[0];
+
+    const cleanedIds = trackingIds
+      .map((t) => (t == null ? "" : String(t).trim()))
+      .filter(Boolean);
+
+    if (cleanedIds.length === 0) {
+      return res.status(400).json({ error: "No valid trackingIds provided" });
+    }
+
+    const foundDocs = [];
+    const notFound = [];
+
+    // 1. fetch metadata from Firestore
+    for (const tid of cleanedIds) {
+      const snap = await db
+        .collection("processedLabels")
+        .where("trackingId", "==", tid)
+        .where("processedDate", "==", searchDate)
+        .orderBy("processedAt", "desc")
+        .limit(1)
+        .get();
+
+      if (snap.empty) {
+        notFound.push(tid);
+        continue;
+      }
+
+      const data = snap.docs[0].data();
+      foundDocs.push({
+        trackingId: tid,
+        ...data,
+      });
+    }
+
+    if (foundDocs.length === 0) {
+      return res.json({
+        message: "No labels found for given tracking IDs on specified date",
+        notFoundTrackingIds: notFound,
+      });
+    }
+
+    // 2. Build output PDF
+    const outDoc = await PDFDocument.create();
+    const pdfCache = {}; // pdfFilename -> loaded PDFDocument
+
+    for (const doc of foundDocs) {
+      const {
+        pdfFilename,
+        pageIndex,
+        labelBox,
+        invoiceBox,
+      } = doc;
+
+      if (
+        !pdfFilename ||
+        pageIndex === undefined ||
+        !labelBox ||
+        !invoiceBox
+      ) {
+        continue;
+      }
+
+      if (!pdfCache[pdfFilename]) {
+        const srcPath = path.join(UPLOAD_DIR, pdfFilename);
+        const srcBytes = await fsPromises.readFile(srcPath);
+        pdfCache[pdfFilename] = await PDFDocument.load(srcBytes);
+      }
+
+      const srcPdf = pdfCache[pdfFilename];
+
+      // copy page to measure height
+      const [page] = await outDoc.copyPages(srcPdf, [pageIndex]);
+      const { height } = page.getSize();
+      const embedded = await outDoc.embedPage(page);
+
+      // label page
+      const labelPage = outDoc.addPage([
+        labelBox.width,
+        labelBox.height,
+      ]);
+      labelPage.drawPage(embedded, {
+        x: -labelBox.x,
+        y: -(height - labelBox.y - labelBox.height),
+      });
+
+      // invoice page
+      const invoicePage = outDoc.addPage([
+        invoiceBox.width,
+        invoiceBox.height,
+      ]);
+      invoicePage.drawPage(embedded, {
+        x: -invoiceBox.x,
+        y: -(height - invoiceBox.y - invoiceBox.height),
+      });
+    }
+
+    if (outDoc.getPageCount() === 0) {
+      return res.json({
+        message: "No valid label pages were generated",
+        notFoundTrackingIds: notFound,
+      });
+    }
+
+    const outName = `reprint-${searchDate}-${Date.now()}.pdf`;
+    const outPath = path.join(OUTPUT_DIR, outName);
+    const outBytes = await outDoc.save();
+    await fsPromises.writeFile(outPath, outBytes);
+
+    res.json({
+      url: `/outputs/${outName}`,
+      foundCount: outDoc.getPageCount() / 2, // approx number of labels
+      notFoundTrackingIds: notFound,
+    });
+  } catch (err) {
+    console.error("Error in /reprint-labels:", err);
+    res.status(500).json({ error: "Failed to reprint labels" });
   }
 });
 
