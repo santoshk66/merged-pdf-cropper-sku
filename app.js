@@ -1,3 +1,4 @@
+no issue so this is my full and final app.js ok - 
 // app.js
 import express from "express";
 import multer from "multer";
@@ -11,14 +12,14 @@ import {
   buildOrderMapFromCSV,
   buildSkuCorrectionMapFromCSV,
 } from "./skuUtils.js";
-import { admin, db } from "./firebaseAdmin.js";
+import { db } from "./firebaseAdmin.js";
 
 const app = express();
 
 // ----------------- Directories -----------------
-const UPLOAD_DIR = "uploads"; // temp upload dir (ephemeral)
-const OUTPUT_DIR = "outputs"; // outputs (zip + reprint pdfs)
-const PERMA_DIR = "data/original_pdfs"; // local permanent originals (extra safety)
+const UPLOAD_DIR = "uploads";                 // temp upload dir (ephemeral)
+const OUTPUT_DIR = "outputs";                 // outputs (zip + reprint pdfs)
+const PERMA_DIR = "data/original_pdfs";       // permanent originals (Solution B)
 
 for (const dir of [UPLOAD_DIR, OUTPUT_DIR, PERMA_DIR]) {
   if (!fs.existsSync(dir)) {
@@ -89,25 +90,13 @@ app.post(
         await fsPromises.readFile(pdfFile.path)
       );
 
-      // Also save a local permanent copy into PERMA_DIR (extra safety)
+      // Also save a permanent copy into PERMA_DIR (Solution B)
       const permanentPath = path.join(PERMA_DIR, pdfFinalName);
       try {
         await fsPromises.copyFile(pdfFinalPath, permanentPath);
-        console.log("Saved permanent original PDF (local):", permanentPath);
+        console.log("Saved permanent original PDF:", permanentPath);
       } catch (copyErr) {
         console.error("Error copying PDF to permanent dir:", copyErr);
-      }
-
-      // 🔹 Upload to Cloud Storage (permanent, survives Render restarts)
-      try {
-        const bucket = admin.storage().bucket();
-        const pdfStoragePath = `original_pdfs/${pdfFinalName}.pdf`;
-        await bucket.upload(pdfFinalPath, {
-          destination: pdfStoragePath,
-        });
-        console.log("Uploaded original PDF to Cloud Storage:", pdfStoragePath);
-      } catch (storageErr) {
-        console.error("Error uploading PDF to Cloud Storage:", storageErr);
       }
 
       let mappingFilename = null;
@@ -246,10 +235,7 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // 🔹 Storage path in Cloud Storage for this PDF
-    const pdfStoragePath = `original_pdfs/${pdfFilename}.pdf`;
-
-    // Load input PDF from UPLOAD_DIR (for processing now)
+    // Load input PDF from UPLOAD_DIR
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
     const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
@@ -317,7 +303,7 @@ app.post("/crop", async (req, res) => {
 
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i] || null;
-      let trackingId = trackingIdsByPage[i] || null; // can be backfilled from CSV row
+      let trackingId = trackingIdsByPage[i] || null;   // can be backfilled from CSV row
 
       // Optional: remove duplicate labels for SAME Order Id
       if (removeDuplicates && orderId) {
@@ -724,7 +710,6 @@ app.post("/crop", async (req, res) => {
     await db.collection("picklists").doc(picklistId).set({
       picklistId,
       pdfFilename,
-      pdfStoragePath, // 🔹 store where original PDF lives in Cloud Storage
       mappingFilename: mappingFilename || null,
       createdAt: now,
       updatedAt: now,
@@ -751,14 +736,13 @@ app.post("/crop", async (req, res) => {
           const docRef = db.collection("processedLabels").doc();
           batch.set(docRef, {
             pdfFilename,
-            pdfStoragePath, // 🔹 Cloud Storage path for reprint
             mappingFilename: mappingFilename || null,
             pageIndex: job.pageIndex,
             orderId: job.orderId || null,
             trackingId: job.trackingId || null,
             rawSku: job.rawSku || null,
             finalSku: job.finalSku || null,
-            qtyRaw: job.qtyRaw || null,
+            qtyRaw: job.qtyRaw || null,          // <- store qtyRaw
             productName: job.productName || "",
             labelBox: label,
             invoiceBox: invoice,
@@ -1010,23 +994,16 @@ app.post("/reprint-labels", async (req, res) => {
       });
     }
 
-    // ---------- Build output PDF from Cloud Storage originals ----------
+    // ---------- Build output PDF from permanent originals ----------
     const outDoc = await PDFDocument.create();
     const textFont = await outDoc.embedFont(StandardFonts.Helvetica);
-    const pdfCache = {}; // key: pdfStoragePath OR pdfFilename -> PDFDocument
-    const bucket = admin.storage().bucket();
+    const pdfCache = {}; // pdfFilename -> loaded PDFDocument
 
     for (const doc of foundDocs) {
-      const {
-        pdfFilename,
-        pdfStoragePath,
-        pageIndex,
-        labelBox,
-        invoiceBox,
-      } = doc;
+      const { pdfFilename, pageIndex, labelBox, invoiceBox } = doc;
 
       if (
-        (!pdfFilename && !pdfStoragePath) ||
+        !pdfFilename ||
         pageIndex === undefined ||
         !labelBox ||
         !invoiceBox
@@ -1034,74 +1011,32 @@ app.post("/reprint-labels", async (req, res) => {
         continue;
       }
 
-      // Decide cache key & path
-      const storagePath =
-        pdfStoragePath || `original_pdfs/${pdfFilename}.pdf`;
-      const cacheKey = storagePath;
-
-      if (!pdfCache[cacheKey]) {
+      if (!pdfCache[pdfFilename]) {
         let srcBytes = null;
-
-        // 1) try Cloud Storage
         try {
-          const [fileBuffer] = await bucket
-            .file(storagePath)
-            .download();
-          srcBytes = fileBuffer;
-          console.log("Loaded original PDF from Cloud Storage:", storagePath);
+          const srcPath = path.join(PERMA_DIR, pdfFilename);
+          srcBytes = await fsPromises.readFile(srcPath);
+          console.log("Loaded original PDF from PERMA_DIR:", srcPath);
         } catch (err) {
-          console.error(
-            "Cloud Storage PDF not found or error for",
-            storagePath,
-            err.message
-          );
-        }
-
-        // 2) fallback to PERMA_DIR
-        if (!srcBytes) {
-          try {
-            const localPermaPath = path.join(PERMA_DIR, pdfFilename);
-            srcBytes = await fsPromises.readFile(localPermaPath);
-            console.log(
-              "Loaded original PDF from PERMA_DIR fallback:",
-              localPermaPath
-            );
-          } catch (err2) {
-            console.error(
-              "Permanent PDF not found for",
-              pdfFilename,
-              err2.message
-            );
-          }
-        }
-
-        // 3) fallback to UPLOAD_DIR
-        if (!srcBytes) {
+          console.error("Permanent PDF not found for", pdfFilename, err.message);
           try {
             const srcPathUpload = path.join(UPLOAD_DIR, pdfFilename);
             srcBytes = await fsPromises.readFile(srcPathUpload);
-            console.log(
-              "Loaded original PDF from UPLOAD_DIR fallback:",
-              srcPathUpload
-            );
-          } catch (err3) {
+            console.log("Loaded original PDF from UPLOAD_DIR:", srcPathUpload);
+          } catch (err2) {
             console.error(
               "Also missing in UPLOAD_DIR for",
               pdfFilename,
-              err3.message
+              err2.message
             );
+            continue;
           }
         }
 
-        if (!srcBytes) {
-          // completely missing
-          continue;
-        }
-
-        pdfCache[cacheKey] = await PDFDocument.load(srcBytes);
+        pdfCache[pdfFilename] = await PDFDocument.load(srcBytes);
       }
 
-      const srcPdf = pdfCache[cacheKey];
+      const srcPdf = pdfCache[pdfFilename];
 
       const [page] = await outDoc.copyPages(srcPdf, [pageIndex]);
       const { height } = page.getSize();
@@ -1298,3 +1233,4 @@ const port = process.env.PORT || 3000;
 app.listen(port, "0.0.0.0", () =>
   console.log(`Server running on port ${port}`)
 );
+ 
