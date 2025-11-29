@@ -16,9 +16,9 @@ import { db } from "./firebaseAdmin.js";
 const app = express();
 
 // ----------------- Directories -----------------
-const UPLOAD_DIR = "uploads";                 // temp upload dir (ephemeral on Render)
-const OUTPUT_DIR = "outputs";                 // output PDFs & ZIPs
-const PERMA_DIR = "data/original_pdfs";       // 🔒 permanent storage for original PDFs
+const UPLOAD_DIR = "uploads";                 // temp upload dir (ephemeral)
+const OUTPUT_DIR = "outputs";                 // outputs (zip + reprint pdfs)
+const PERMA_DIR = "data/original_pdfs";       // permanent originals (Solution B)
 
 for (const dir of [UPLOAD_DIR, OUTPUT_DIR, PERMA_DIR]) {
   if (!fs.existsSync(dir)) {
@@ -79,7 +79,7 @@ app.post(
         return res.status(400).json({ error: "Missing PDF file" });
       }
 
-      // Multer gives us a random filename (no extension) in uploads/
+      // Multer random filename (no extension)
       const pdfFinalName = pdfFile.filename;
 
       // Save into UPLOAD_DIR (temp)
@@ -89,7 +89,7 @@ app.post(
         await fsPromises.readFile(pdfFile.path)
       );
 
-      // 🔒 ALSO save a permanent copy into PERMA_DIR
+      // Also save a permanent copy into PERMA_DIR (Solution B)
       const permanentPath = path.join(PERMA_DIR, pdfFinalName);
       try {
         await fsPromises.copyFile(pdfFinalPath, permanentPath);
@@ -234,7 +234,7 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // Load input PDF from UPLOAD_DIR (we just uploaded it)
+    // Load input PDF from UPLOAD_DIR
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
     const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
@@ -255,12 +255,10 @@ app.post("/crop", async (req, res) => {
       for (const [orderId, rowsOrRow] of Object.entries(orderMap)) {
         const rows = Array.isArray(rowsOrRow) ? rowsOrRow : [rowsOrRow];
 
-        // Duplicate Order Ids in CSV
         if (rows.length > 1) {
           duplicateOrderIds.push(orderId);
         }
 
-        // Build tracking map
         for (const row of rows) {
           const trackingRaw =
             (row["Tracking ID"] ||
@@ -278,7 +276,6 @@ app.post("/crop", async (req, res) => {
         }
       }
 
-      // Duplicate Tracking IDs in CSV
       for (const [tid, arr] of Object.entries(trackingMap)) {
         if (arr.length > 1) {
           duplicateTrackingIds.push(tid);
@@ -296,7 +293,7 @@ app.post("/crop", async (req, res) => {
       }
     });
 
-    // ---------- 3) Picklist aggregation: finalSku -> { sku, qty, product } ----------
+    // ---------- 3) Picklist aggregation ----------
     const picklistMap = {};
 
     const jobs = [];
@@ -305,9 +302,9 @@ app.post("/crop", async (req, res) => {
 
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i] || null;
-      const trackingId = trackingIdsByPage[i] || null;
+      let trackingId = trackingIdsByPage[i] || null;   // <- can be filled from CSV row later
 
-      // Optional: remove duplicate labels for the SAME Order Id (per PDF)
+      // Optional: remove duplicate labels for SAME Order Id
       if (removeDuplicates && orderId) {
         if (seenOrderIds.has(orderId)) {
           continue;
@@ -324,10 +321,8 @@ app.post("/crop", async (req, res) => {
           : [rowsForOrderRaw];
 
         if (rowsForOrder.length === 1) {
-          // Unique orderId
           row = rowsForOrder[0];
         } else {
-          // Duplicate orderId -> use tracking or round robin
           if (trackingId && trackingMap[trackingId]) {
             const candidates = trackingMap[trackingId].filter(
               (entry) => entry.orderId === orderId
@@ -349,8 +344,19 @@ app.post("/crop", async (req, res) => {
           }
         }
       } else {
-        // orderId missing or not in CSV
         row = {};
+      }
+
+      // 🔹 NEW: if front-end couldn't detect trackingId, backfill from CSV row
+      const trackingFromRow =
+        (row["Tracking ID"] ||
+          row["Tracking Id"] ||
+          row["tracking id"] ||
+          row["TrackingID"] ||
+          "").toString().trim();
+
+      if (!trackingId && trackingFromRow) {
+        trackingId = trackingFromRow;
       }
 
       const rawSku = (row["SKU"] || "").toString().trim();
@@ -403,7 +409,7 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // ---- Sort jobs by SKU so labels are in sequence ----
+    // ---- Sort jobs by SKU ----
     const withSku = jobs.filter((j) => j.finalSku);
     const withoutSku = jobs.filter((j) => !j.finalSku);
 
@@ -415,7 +421,7 @@ app.post("/crop", async (req, res) => {
 
     const sortedJobs = [...withSku, ...withoutSku];
 
-    // ---- Count jobs per SKU for threshold 5 ----
+    // ---- Count jobs per SKU ----
     const skuCounts = {};
     for (const job of jobs) {
       if (!job.finalSku) continue;
@@ -435,7 +441,6 @@ app.post("/crop", async (req, res) => {
     async function addCroppedPagesForJob(targetDoc, font, job) {
       const [page] = await targetDoc.copyPages(inputPdf, [job.pageIndex]);
       const { height } = page.getSize();
-
       const embedded = await targetDoc.embedPage(page);
 
       // LABEL page
@@ -468,7 +473,7 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // ---- MAIN LOOP over sortedJobs ----
+    // ---- MAIN LOOP for fullDoc / smallDoc / skuDocs ----
     let lastGroupKey = null;
 
     for (const job of sortedJobs) {
@@ -483,7 +488,6 @@ app.post("/crop", async (req, res) => {
 
         const headerFontSize = 12;
         const headerLineHeight = headerFontSize * 1.3;
-
         const maxHeaderWidth = hpw - 40;
 
         const headerLines = wrapTextIntoLines(
@@ -517,7 +521,6 @@ app.post("/crop", async (req, res) => {
         lastGroupKey = groupKey;
       }
 
-      // Full combined
       await addCroppedPagesForJob(fullDoc, fullFont, job);
 
       const sku = job.finalSku;
@@ -535,7 +538,7 @@ app.post("/crop", async (req, res) => {
       }
     }
 
-    // -------- Build Picklist PDF (with wrapped product names) --------
+    // -------- Build Picklist PDF --------
     const picklistDoc = await PDFDocument.create();
     const pickFont = await picklistDoc.embedFont(StandardFonts.Helvetica);
 
@@ -578,7 +581,6 @@ app.post("/crop", async (req, res) => {
     drawHeaders(pickPage);
     y -= lineHeight;
 
-    // ---- Picklist items sorted by qty DESC ----
     const pickItemsArray = Object.values(picklistMap);
     const pickItemsSorted = pickItemsArray.sort((a, b) => {
       const diff = (b.qty || 0) - (a.qty || 0);
@@ -755,7 +757,6 @@ app.post("/crop", async (req, res) => {
       }
     } catch (metaErr) {
       console.error("Error saving processed label metadata:", metaErr);
-      // non-fatal
     }
 
     // -------- Respond --------
@@ -790,7 +791,7 @@ app.get("/picklist/:id", async (req, res) => {
   }
 });
 
-// Get latest (most recent) picklist
+// Get latest picklist
 app.get("/picklist-latest", async (req, res) => {
   try {
     const snap = await db
@@ -811,7 +812,7 @@ app.get("/picklist-latest", async (req, res) => {
   }
 });
 
-// List picklists by createdAt range (for date filters)
+// List picklists by createdAt range
 app.get("/picklists", async (req, res) => {
   try {
     const from = req.query.from ? Number(req.query.from) : null;
@@ -866,45 +867,57 @@ app.post("/picklist/:id", async (req, res) => {
   }
 });
 
-// ----------------- Reprint labels by trackingId -----------------
+// ----------------- Reprint labels by trackingId / orderId -----------------
 /**
  * POST /reprint-labels
  * Body:
  *  {
- *    trackingIds: ["FMPP...", "FMPP..."],
- *    date: "YYYY-MM-DD" // optional, defaults to today
+ *    trackingIds: ["FMPP...", "FMPP..."],   // optional
+ *    orderIds: ["OD...", "OD..."],          // optional
+ *    date: "YYYY-MM-DD"                     // optional, defaults to today
  *  }
+ *
+ * At least ONE of trackingIds or orderIds must be non-empty.
  */
 app.post("/reprint-labels", async (req, res) => {
   try {
-    const { trackingIds, date } = req.body;
-
-    if (!trackingIds || !Array.isArray(trackingIds) || trackingIds.length === 0) {
-      return res.status(400).json({ error: "trackingIds must be a non-empty array" });
-    }
+    const { trackingIds, orderIds, date } = req.body;
 
     const searchDate = date || new Date().toISOString().split("T")[0];
 
-    const cleanedIds = trackingIds
-      .map((t) => (t == null ? "" : String(t).trim()))
-      .filter(Boolean);
+    const cleanedTracking = Array.isArray(trackingIds)
+      ? trackingIds
+          .map((t) => (t == null ? "" : String(t).trim()))
+          .filter(Boolean)
+      : [];
 
-    if (cleanedIds.length === 0) {
-      return res.status(400).json({ error: "No valid trackingIds provided" });
+    const cleanedOrders = Array.isArray(orderIds)
+      ? orderIds
+          .map((o) => (o == null ? "" : String(o).trim()))
+          .filter(Boolean)
+      : [];
+
+    if (cleanedTracking.length === 0 && cleanedOrders.length === 0) {
+      return res.status(400).json({
+        error: "Provide at least one trackingId or orderId",
+      });
     }
 
-    const foundDocs = [];
-    const notFound = [];
+    const notFoundTracking = [];
+    const notFoundOrders = [];
 
-    // 1) fetch label metadata from Firestore
-    for (const tid of cleanedIds) {
+    // Use map to avoid duplicate pages (same pdfFilename + pageIndex)
+    const docMap = new Map(); // key = `${pdfFilename}#${pageIndex}`
+
+    // ---------- Search by trackingIds ----------
+    for (const tid of cleanedTracking) {
       const snap = await db
         .collection("processedLabels")
         .where("trackingId", "==", tid)
         .get();
 
       if (snap.empty) {
-        notFound.push(tid);
+        notFoundTracking.push(tid);
         continue;
       }
 
@@ -913,7 +926,7 @@ app.post("/reprint-labels", async (req, res) => {
         .filter((d) => d.processedDate === searchDate);
 
       if (candidates.length === 0) {
-        notFound.push(tid);
+        notFoundTracking.push(tid);
         continue;
       }
 
@@ -921,30 +934,70 @@ app.post("/reprint-labels", async (req, res) => {
         (a, b) => (b.processedAt || 0) - (a.processedAt || 0)
       );
 
-      foundDocs.push({
+      const best = {
         trackingId: tid,
         ...candidates[0],
-      });
+      };
+
+      const key = `${best.pdfFilename}#${best.pageIndex}`;
+      if (!docMap.has(key)) {
+        docMap.set(key, best);
+      }
     }
+
+    // ---------- Search by orderIds ----------
+    for (const oid of cleanedOrders) {
+      const snap = await db
+        .collection("processedLabels")
+        .where("orderId", "==", oid)
+        .get();
+
+      if (snap.empty) {
+        notFoundOrders.push(oid);
+        continue;
+      }
+
+      const candidates = snap.docs
+        .map((d) => d.data())
+        .filter((d) => d.processedDate === searchDate);
+
+      if (candidates.length === 0) {
+        notFoundOrders.push(oid);
+        continue;
+      }
+
+      candidates.sort(
+        (a, b) => (b.processedAt || 0) - (a.processedAt || 0)
+      );
+
+      const best = {
+        orderId: oid,
+        ...candidates[0],
+      };
+
+      const key = `${best.pdfFilename}#${best.pageIndex}`;
+      if (!docMap.has(key)) {
+        docMap.set(key, best);
+      }
+    }
+
+    const foundDocs = Array.from(docMap.values());
 
     if (foundDocs.length === 0) {
       return res.json({
-        message: "No labels found for given tracking IDs on specified date",
-        notFoundTrackingIds: notFound,
+        message:
+          "No labels found for given tracking / order IDs on specified date",
+        notFoundTrackingIds: notFoundTracking,
+        notFoundOrderIds: notFoundOrders,
       });
     }
 
-    // 2) Build output PDF from PERMA_DIR
+    // ---------- Build output PDF from permanent originals ----------
     const outDoc = await PDFDocument.create();
     const pdfCache = {}; // pdfFilename -> loaded PDFDocument
 
     for (const doc of foundDocs) {
-      const {
-        pdfFilename,
-        pageIndex,
-        labelBox,
-        invoiceBox,
-      } = doc;
+      const { pdfFilename, pageIndex, labelBox, invoiceBox } = doc;
 
       if (
         !pdfFilename ||
@@ -958,21 +1011,22 @@ app.post("/reprint-labels", async (req, res) => {
       if (!pdfCache[pdfFilename]) {
         let srcBytes = null;
         try {
-          // 🔒 load from permanent directory
           const srcPath = path.join(PERMA_DIR, pdfFilename);
           srcBytes = await fsPromises.readFile(srcPath);
           console.log("Loaded original PDF from PERMA_DIR:", srcPath);
         } catch (err) {
           console.error("Permanent PDF not found for", pdfFilename, err.message);
-
-          // fallback: try uploads (maybe still present)
           try {
             const srcPathUpload = path.join(UPLOAD_DIR, pdfFilename);
             srcBytes = await fsPromises.readFile(srcPathUpload);
             console.log("Loaded original PDF from UPLOAD_DIR:", srcPathUpload);
           } catch (err2) {
-            console.error("Also missing in UPLOAD_DIR for", pdfFilename, err2.message);
-            continue; // can't process this one
+            console.error(
+              "Also missing in UPLOAD_DIR for",
+              pdfFilename,
+              err2.message
+            );
+            continue;
           }
         }
 
@@ -981,7 +1035,6 @@ app.post("/reprint-labels", async (req, res) => {
 
       const srcPdf = pdfCache[pdfFilename];
 
-      // Copy page to measure height
       const [page] = await outDoc.copyPages(srcPdf, [pageIndex]);
       const { height } = page.getSize();
       const embedded = await outDoc.embedPage(page);
@@ -1010,7 +1063,8 @@ app.post("/reprint-labels", async (req, res) => {
     if (outDoc.getPageCount() === 0) {
       return res.json({
         message: "No valid label pages were generated",
-        notFoundTrackingIds: notFound,
+        notFoundTrackingIds: notFoundTracking,
+        notFoundOrderIds: notFoundOrders,
       });
     }
 
@@ -1022,7 +1076,8 @@ app.post("/reprint-labels", async (req, res) => {
     res.json({
       url: `/outputs/${outName}`,
       foundCount: outDoc.getPageCount() / 2,
-      notFoundTrackingIds: notFound,
+      notFoundTrackingIds: notFoundTracking,
+      notFoundOrderIds: notFoundOrders,
     });
   } catch (err) {
     console.error("Error in /reprint-labels:", err);
@@ -1037,17 +1092,9 @@ app.post("/reprint-labels", async (req, res) => {
  * that should be brought from another office.
  *
  * Firestore collection: transferTasks
- * Fields:
- *  - picklistId
- *  - sku
- *  - product
- *  - assignedQty
- *  - fulfilledQty
- *  - status: 'pending' | 'partial' | 'fulfilled'
- *  - createdAt, updatedAt
  */
 
-// Create a transfer task from the main picklist page
+// Create a transfer task
 app.post("/transfer-tasks", async (req, res) => {
   try {
     const { picklistId, sku, product, assignedQty } = req.body;
