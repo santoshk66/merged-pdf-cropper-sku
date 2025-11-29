@@ -10,10 +10,36 @@ function setPresetDate(preset) {
   }
 }
 
+function getSearchType() {
+  const el = document.querySelector("input[name='searchType']:checked");
+  return el ? el.value : "tracking"; // default
+}
+
+function updateIdsUI() {
+  const type = getSearchType();
+  const labelEl = document.getElementById("idsLabel");
+  const textarea = document.getElementById("ids");
+
+  if (!labelEl || !textarea) return;
+
+  if (type === "tracking") {
+    labelEl.textContent = "Tracking IDs";
+    textarea.placeholder = "Example:\nFMPP1234567\nFMPP7654321\nFMPP9998887";
+    setLog("Waiting for tracking IDs...", null);
+  } else {
+    labelEl.textContent = "Order IDs";
+    textarea.placeholder =
+      "Example:\nOD436117203254710100\nOD123456789012345000\n...";
+    setLog("Waiting for order IDs...", null);
+  }
+}
+
 function clearForm() {
   document.getElementById("ids").value = "";
   document.getElementById("dateInput").value = "";
-  setLog("Cleared input. Waiting for tracking IDs...");
+  const type = getSearchType();
+  const what = type === "tracking" ? "tracking IDs" : "order IDs";
+  setLog(`Cleared input. Waiting for ${what}...`);
 }
 
 function setLog(message, type) {
@@ -34,37 +60,44 @@ function setLog(message, type) {
 
 async function reprint() {
   const btn = document.getElementById("btnReprint");
+  const type = getSearchType();
+
   let idsRaw = document.getElementById("ids").value.trim();
   let date = document.getElementById("dateInput").value;
 
   if (!idsRaw) {
-    setLog("Please enter at least one tracking ID.", "warn");
+    const what = type === "tracking" ? "tracking ID" : "order ID";
+    setLog(`Please enter at least one ${what}.`, "warn");
     return;
   }
 
-  // convert input to array of tracking IDs
-  const trackingIds = idsRaw
+  // convert input to array of IDs
+  const ids = idsRaw
     .split(/[\n,;\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (trackingIds.length === 0) {
-    setLog("No valid tracking IDs found in input.", "warn");
+  if (ids.length === 0) {
+    const what = type === "tracking" ? "tracking IDs" : "order IDs";
+    setLog(`No valid ${what} found in input.`, "warn");
     return;
   }
 
-  // if no date, backend will assume today
-  const body = {
-    trackingIds,
-  };
+  const body = {};
+  if (type === "tracking") {
+    body.trackingIds = ids;
+  } else {
+    body.orderIds = ids;
+  }
   if (date) {
     body.date = date;
   }
 
   try {
     btn.disabled = true;
+    const what = type === "tracking" ? "tracking ID(s)" : "order ID(s)";
     setLog(
-      `Processing ${trackingIds.length} tracking ID(s)...\n• Date: ${
+      `Processing ${ids.length} ${what}...\n• Date: ${
         date || "today (server default)"
       }`,
       "ok"
@@ -88,6 +121,9 @@ async function reprint() {
       return;
     }
 
+    const notFoundTracking = data.notFoundTrackingIds || [];
+    const notFoundOrders = data.notFoundOrderIds || [];
+
     if (data.url) {
       // auto trigger download
       const a = document.createElement("a");
@@ -97,14 +133,18 @@ async function reprint() {
       a.click();
       a.remove();
 
-      const notFound = data.notFoundTrackingIds || [];
       let msg = `✅ Download ready.\n\nFile: ${data.url}`;
       if (typeof data.foundCount === "number") {
         msg += `\nLabels found: ${data.foundCount}`;
       }
 
-      if (notFound.length > 0) {
-        msg += `\n\n⚠ Not found (${notFound.length}):\n${notFound.join(
+      if (type === "tracking" && notFoundTracking.length > 0) {
+        msg += `\n\n⚠ Tracking IDs not found (${notFoundTracking.length}):\n${notFoundTracking.join(
+          ", "
+        )}`;
+        setLog(msg, "warn");
+      } else if (type === "order" && notFoundOrders.length > 0) {
+        msg += `\n\n⚠ Order IDs not found (${notFoundOrders.length}):\n${notFoundOrders.join(
           ", "
         )}`;
         setLog(msg, "warn");
@@ -112,11 +152,18 @@ async function reprint() {
         setLog(msg, "ok");
       }
     } else if (data.message) {
-      const notFound = data.notFoundTrackingIds || [];
       let msg = data.message;
-      if (notFound.length > 0) {
-        msg += `\n\nNot found (${notFound.length}):\n${notFound.join(", ")}`;
+
+      if (type === "tracking" && notFoundTracking.length > 0) {
+        msg += `\n\nTracking IDs not found (${notFoundTracking.length}):\n${notFoundTracking.join(
+          ", "
+        )}`;
+      } else if (type === "order" && notFoundOrders.length > 0) {
+        msg += `\n\nOrder IDs not found (${notFoundOrders.length}):\n${notFoundOrders.join(
+          ", "
+        )}`;
       }
+
       setLog(msg, "warn");
     } else {
       setLog("No data returned from server.", "warn");
@@ -128,3 +175,10 @@ async function reprint() {
     btn.disabled = false;
   }
 }
+
+/* --------- init search-type toggle --------- */
+const searchTypeRadios = document.querySelectorAll("input[name='searchType']");
+searchTypeRadios.forEach((r) =>
+  r.addEventListener("change", () => updateIdsUI())
+);
+updateIdsUI();
