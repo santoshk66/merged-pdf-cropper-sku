@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Reprint Labels by Tracking ID</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: #f3f4f6;
+      color: #111827;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 720px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+      padding: 20px 24px 24px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .title span.emoji {
+      font-size: 22px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 16px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      display: inline-block;
+      color: #374151;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-family: monospace;
+      font-size: 13px;
+      resize: vertical;
+      outline: none;
+    }
+
+    textarea:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+    }
+
+    .field-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0;
+      min-width: 160px;
+    }
+
+    input[type="date"] {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-size: 13px;
+      outline: none;
+      width: 100%;
+    }
+
+    input[type="date"]:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+    }
+
+    .presets {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+
+    .preset-btn {
+      border: none;
+      background: #f3f4f6;
+      color: #374151;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .preset-btn:hover {
+      background: #e5e7eb;
+    }
+
+    .actions {
+      margin-top: 18px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary {
+      border: none;
+      background: #2563eb;
+      color: #ffffff;
+      font-size: 14px;
+      padding: 10px 18px;
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #1d4ed8;
+    }
+
+    .btn-secondary {
+      border: none;
+      background: transparent;
+      color: #4b5563;
+      font-size: 13px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .btn-secondary:hover {
+      background: #f3f4f6;
+    }
+
+    .badge {
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: #e5f2ff;
+      color: #1d4ed8;
+    }
+
+    #log {
+      margin-top: 16px;
+      padding: 10px 12px;
+      background: #f9fafb;
+      border-radius: 8px;
+      font-size: 12px;
+      white-space: pre-line;
+      border: 1px dashed #e5e7eb;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .log-title {
+      font-weight: 500;
+      margin-bottom: 4px;
+      color: #4b5563;
+    }
+
+    .log-line-ok {
+      color: #059669;
+    }
+
+    .log-line-warn {
+      color: #b45309;
+    }
+
+    .log-line-error {
+      color: #b91c1c;
+    }
+
+    @media (max-width: 640px) {
+      .card {
+        padding: 16px;
+      }
+      .title {
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="title">
+          <span class="emoji">🔄</span>
+          <span>Reprint Labels by Tracking ID</span>
+        </div>
+        <div class="subtitle">
+          Paste one or more tracking IDs (FMPP...) and get a single PDF with all matching labels + invoices.
+        </div>
+      </div>
+      <div class="badge">
+        Uses today's processed labels by default
+      </div>
+    </div>
+
+    <div>
+      <label for="ids">Tracking IDs</label>
+      <textarea id="ids" placeholder="Example:
+FMPP1234567
+FMPP7654321
+FMPP9998887"></textarea>
+    </div>
+
+    <div class="field-row">
+      <div class="field-group">
+        <label for="dateInput">Processed Date (optional)</label>
+        <input type="date" id="dateInput" />
+        <div class="presets">
+          <button type="button" class="preset-btn" onclick="setPresetDate('today')">
+            Today
+          </button>
+          <button type="button" class="preset-btn" onclick="setPresetDate('yesterday')">
+            Yesterday
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="btnReprint" class="btn-primary" onclick="reprint()">
+        <span>🔍</span>
+        <span>Fetch & Download PDF</span>
+      </button>
+      <button class="btn-secondary" type="button" onclick="clearForm()">
+        Clear
+      </button>
+    </div>
+
+    <div id="log">
+      <div class="log-title">Status</div>
+      <div>Waiting for input...</div>
+    </div>
+  </div>
+
+  <script src="reprint.js"></script>
+</body>
+</html>
