@@ -16,14 +16,14 @@ import { db } from "./firebaseAdmin.js";
 const app = express();
 
 // ----------------- Directories -----------------
-const UPLOAD_DIR = "uploads";
-const OUTPUT_DIR = "outputs";
+const UPLOAD_DIR = "uploads";                 // temp upload dir (ephemeral on Render)
+const OUTPUT_DIR = "outputs";                 // output PDFs & ZIPs
+const PERMA_DIR = "data/original_pdfs";       // 🔒 permanent storage for original PDFs
 
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
-if (!fs.existsSync(OUTPUT_DIR)) {
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+for (const dir of [UPLOAD_DIR, OUTPUT_DIR, PERMA_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 const upload = multer({ dest: UPLOAD_DIR });
@@ -79,13 +79,24 @@ app.post(
         return res.status(400).json({ error: "Missing PDF file" });
       }
 
-      // Save PDF into uploads dir (by multer filename)
+      // Multer gives us a random filename (no extension) in uploads/
       const pdfFinalName = pdfFile.filename;
+
+      // Save into UPLOAD_DIR (temp)
       const pdfFinalPath = path.join(UPLOAD_DIR, pdfFinalName);
       await fsPromises.writeFile(
         pdfFinalPath,
         await fsPromises.readFile(pdfFile.path)
       );
+
+      // 🔒 ALSO save a permanent copy into PERMA_DIR
+      const permanentPath = path.join(PERMA_DIR, pdfFinalName);
+      try {
+        await fsPromises.copyFile(pdfFinalPath, permanentPath);
+        console.log("Saved permanent original PDF:", permanentPath);
+      } catch (copyErr) {
+        console.error("Error copying PDF to permanent dir:", copyErr);
+      }
 
       let mappingFilename = null;
 
@@ -223,7 +234,7 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // Load input PDF
+    // Load input PDF from UPLOAD_DIR (we just uploaded it)
     const pdfPath = path.join(UPLOAD_DIR, pdfFilename);
     const pdfData = await fsPromises.readFile(pdfPath);
     const inputPdf = await PDFDocument.load(pdfData);
@@ -567,7 +578,7 @@ app.post("/crop", async (req, res) => {
     drawHeaders(pickPage);
     y -= lineHeight;
 
-    // ---- Picklist items sorted by qty DESC (big → small) ----
+    // ---- Picklist items sorted by qty DESC ----
     const pickItemsArray = Object.values(picklistMap);
     const pickItemsSorted = pickItemsArray.sort((a, b) => {
       const diff = (b.qty || 0) - (a.qty || 0);
@@ -642,7 +653,7 @@ app.post("/crop", async (req, res) => {
       index++;
     }
 
-    // -------- Create ZIP with all PDFs in memory --------
+    // -------- Create ZIP with all PDFs --------
     const zip = new AdmZip();
 
     const fullBytes = await fullDoc.save();
@@ -674,7 +685,7 @@ app.post("/crop", async (req, res) => {
     const zipPath = path.join(OUTPUT_DIR, zipName);
     zip.writeZip(zipPath);
 
-    // -------- Build picklist JSON (qty DESC) --------
+    // -------- Build picklist JSON --------
     const picklistJson = pickItemsSorted.map((item) => ({
       sku: item.sku,
       requiredQty: item.qty,
@@ -692,7 +703,7 @@ app.post("/crop", async (req, res) => {
     const now = Date.now();
     const picklistId = `pl_${now}`;
 
-    // Save picklist in Firestore (for dashboard)
+    // Save picklist in Firestore
     await db.collection("picklists").doc(picklistId).set({
       picklistId,
       pdfFilename,
@@ -717,7 +728,6 @@ app.post("/crop", async (req, res) => {
 
         for (let j = i; j < Math.min(i + chunkSize, jobs.length); j++) {
           const job = jobs[j];
-          // only store if we have some identifier
           if (!job.orderId && !job.trackingId) continue;
 
           const docRef = db.collection("processedLabels").doc();
@@ -745,7 +755,7 @@ app.post("/crop", async (req, res) => {
       }
     } catch (metaErr) {
       console.error("Error saving processed label metadata:", metaErr);
-      // non-fatal – main crop still succeeds
+      // non-fatal
     }
 
     // -------- Respond --------
@@ -780,7 +790,7 @@ app.get("/picklist/:id", async (req, res) => {
   }
 });
 
-// Get latest (most recent) picklist – kept for backward compatibility
+// Get latest (most recent) picklist
 app.get("/picklist-latest", async (req, res) => {
   try {
     const snap = await db
@@ -826,7 +836,7 @@ app.get("/picklists", async (req, res) => {
   }
 });
 
-// Update picklist items + status (Fulfilled, Pending, etc.)
+// Update picklist items + status
 app.post("/picklist/:id", async (req, res) => {
   try {
     const { items, status } = req.body;
@@ -886,18 +896,8 @@ app.post("/reprint-labels", async (req, res) => {
     const foundDocs = [];
     const notFound = [];
 
-    // 1. fetch metadata from Firestore
+    // 1) fetch label metadata from Firestore
     for (const tid of cleanedIds) {
-      // 🔴 OLD (needs composite index):
-      // const snap = await db
-      //   .collection("processedLabels")
-      //   .where("trackingId", "==", tid)
-      //   .where("processedDate", "==", searchDate)
-      //   .orderBy("processedAt", "desc")
-      //   .limit(1)
-      //   .get();
-
-      // ✅ NEW: only filter on trackingId in Firestore, filter by date in JS
       const snap = await db
         .collection("processedLabels")
         .where("trackingId", "==", tid)
@@ -917,7 +917,6 @@ app.post("/reprint-labels", async (req, res) => {
         continue;
       }
 
-      // pick latest by processedAt
       candidates.sort(
         (a, b) => (b.processedAt || 0) - (a.processedAt || 0)
       );
@@ -935,7 +934,7 @@ app.post("/reprint-labels", async (req, res) => {
       });
     }
 
-    // 2. Build output PDF
+    // 2) Build output PDF from PERMA_DIR
     const outDoc = await PDFDocument.create();
     const pdfCache = {}; // pdfFilename -> loaded PDFDocument
 
@@ -957,19 +956,37 @@ app.post("/reprint-labels", async (req, res) => {
       }
 
       if (!pdfCache[pdfFilename]) {
-        const srcPath = path.join(UPLOAD_DIR, pdfFilename);
-        const srcBytes = await fsPromises.readFile(srcPath);
+        let srcBytes = null;
+        try {
+          // 🔒 load from permanent directory
+          const srcPath = path.join(PERMA_DIR, pdfFilename);
+          srcBytes = await fsPromises.readFile(srcPath);
+          console.log("Loaded original PDF from PERMA_DIR:", srcPath);
+        } catch (err) {
+          console.error("Permanent PDF not found for", pdfFilename, err.message);
+
+          // fallback: try uploads (maybe still present)
+          try {
+            const srcPathUpload = path.join(UPLOAD_DIR, pdfFilename);
+            srcBytes = await fsPromises.readFile(srcPathUpload);
+            console.log("Loaded original PDF from UPLOAD_DIR:", srcPathUpload);
+          } catch (err2) {
+            console.error("Also missing in UPLOAD_DIR for", pdfFilename, err2.message);
+            continue; // can't process this one
+          }
+        }
+
         pdfCache[pdfFilename] = await PDFDocument.load(srcBytes);
       }
 
       const srcPdf = pdfCache[pdfFilename];
 
-      // copy page to measure height
+      // Copy page to measure height
       const [page] = await outDoc.copyPages(srcPdf, [pageIndex]);
       const { height } = page.getSize();
       const embedded = await outDoc.embedPage(page);
 
-      // label page
+      // Label page
       const labelPage = outDoc.addPage([
         labelBox.width,
         labelBox.height,
@@ -979,7 +996,7 @@ app.post("/reprint-labels", async (req, res) => {
         y: -(height - labelBox.y - labelBox.height),
       });
 
-      // invoice page
+      // Invoice page
       const invoicePage = outDoc.addPage([
         invoiceBox.width,
         invoiceBox.height,
@@ -1004,7 +1021,7 @@ app.post("/reprint-labels", async (req, res) => {
 
     res.json({
       url: `/outputs/${outName}`,
-      foundCount: outDoc.getPageCount() / 2, // approx number of labels
+      foundCount: outDoc.getPageCount() / 2,
       notFoundTrackingIds: notFound,
     });
   } catch (err) {
@@ -1071,10 +1088,7 @@ app.post("/transfer-tasks", async (req, res) => {
   }
 });
 
-// List transfer tasks (for other office page)
-// Query params:
-//   status = pending | partial | fulfilled (optional)
-//   from, to = timestamps in ms (optional)
+// List transfer tasks
 app.get("/transfer-tasks", async (req, res) => {
   try {
     const status = req.query.status || null;
@@ -1103,10 +1117,7 @@ app.get("/transfer-tasks", async (req, res) => {
   }
 });
 
-// Update a transfer task (used by other office when they bring stock)
-// Body:
-//   fulfilledQty (number) - required
-//   status (optional)     - if not provided, auto-calculated
+// Update a transfer task
 app.post("/transfer-tasks/:id", async (req, res) => {
   try {
     const { fulfilledQty, status } = req.body;
