@@ -302,7 +302,7 @@ app.post("/crop", async (req, res) => {
 
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i] || null;
-      let trackingId = trackingIdsByPage[i] || null;   // <- can be filled from CSV row later
+      let trackingId = trackingIdsByPage[i] || null;   // can be backfilled from CSV row
 
       // Optional: remove duplicate labels for SAME Order Id
       if (removeDuplicates && orderId) {
@@ -347,7 +347,7 @@ app.post("/crop", async (req, res) => {
         row = {};
       }
 
-      // 🔹 NEW: if front-end couldn't detect trackingId, backfill from CSV row
+      // 🔹 Backfill tracking ID from CSV row if front-end missed it
       const trackingFromRow =
         (row["Tracking ID"] ||
           row["Tracking Id"] ||
@@ -741,6 +741,7 @@ app.post("/crop", async (req, res) => {
             trackingId: job.trackingId || null,
             rawSku: job.rawSku || null,
             finalSku: job.finalSku || null,
+            qtyRaw: job.qtyRaw || null,          // <- store qtyRaw
             productName: job.productName || "",
             labelBox: label,
             invoiceBox: invoice,
@@ -994,6 +995,7 @@ app.post("/reprint-labels", async (req, res) => {
 
     // ---------- Build output PDF from permanent originals ----------
     const outDoc = await PDFDocument.create();
+    const textFont = await outDoc.embedFont(StandardFonts.Helvetica);
     const pdfCache = {}; // pdfFilename -> loaded PDFDocument
 
     for (const doc of foundDocs) {
@@ -1048,6 +1050,21 @@ app.post("/reprint-labels", async (req, res) => {
         x: -labelBox.x,
         y: -(height - labelBox.y - labelBox.height),
       });
+
+      // Draw SKU + qty like in /crop
+      let labelText = doc.finalSku || doc.rawSku || "";
+      if (labelText && doc.qtyRaw) {
+        labelText = `${labelText} (${doc.qtyRaw})`;
+      }
+      if (labelText) {
+        labelPage.drawText(labelText, {
+          x: 5,
+          y: 4,
+          font: textFont,
+          size: 6,
+          color: rgb(0, 0, 0),
+        });
+      }
 
       // Invoice page
       const invoicePage = outDoc.addPage([
