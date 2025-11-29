@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Reprint Labels by Tracking ID</title>
+  <title>Reprint Labels</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     * {
@@ -215,6 +215,29 @@
       color: #b91c1c;
     }
 
+    /* Search toggle */
+    .search-toggle {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .search-toggle label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 0;
+      cursor: pointer;
+      font-weight: 400;
+    }
+
+    .search-toggle input[type="radio"] {
+      cursor: pointer;
+    }
+
     @media (max-width: 640px) {
       .card {
         padding: 16px;
@@ -231,10 +254,10 @@
       <div>
         <div class="title">
           <span class="emoji">🔄</span>
-          <span>Reprint Labels by Tracking ID</span>
+          <span>Reprint Labels</span>
         </div>
         <div class="subtitle">
-          Paste one or more tracking IDs (FMPP...) and get a single PDF with all matching labels + invoices.
+          Paste one or more IDs and get a single PDF with all matching labels + invoices.
         </div>
       </div>
       <div class="badge">
@@ -242,8 +265,21 @@
       </div>
     </div>
 
+    <!-- Search type toggle -->
+    <div class="search-toggle">
+      <span style="font-weight:500;color:#374151;">Search by:</span>
+      <label>
+        <input type="radio" name="searchType" value="tracking" checked />
+        Tracking ID (FMPP / FMPC / SF...)
+      </label>
+      <label>
+        <input type="radio" name="searchType" value="order" />
+        Order ID (OD...)
+      </label>
+    </div>
+
     <div>
-      <label for="ids">Tracking IDs</label>
+      <label for="ids" id="idsLabel">Tracking IDs</label>
       <textarea id="ids" placeholder="Example:
 FMPP1234567
 FMPP7654321
