@@ -888,12 +888,19 @@ app.post("/reprint-labels", async (req, res) => {
 
     // 1. fetch metadata from Firestore
     for (const tid of cleanedIds) {
+      // 🔴 OLD (needs composite index):
+      // const snap = await db
+      //   .collection("processedLabels")
+      //   .where("trackingId", "==", tid)
+      //   .where("processedDate", "==", searchDate)
+      //   .orderBy("processedAt", "desc")
+      //   .limit(1)
+      //   .get();
+
+      // ✅ NEW: only filter on trackingId in Firestore, filter by date in JS
       const snap = await db
         .collection("processedLabels")
         .where("trackingId", "==", tid)
-        .where("processedDate", "==", searchDate)
-        .orderBy("processedAt", "desc")
-        .limit(1)
         .get();
 
       if (snap.empty) {
@@ -901,10 +908,23 @@ app.post("/reprint-labels", async (req, res) => {
         continue;
       }
 
-      const data = snap.docs[0].data();
+      const candidates = snap.docs
+        .map((d) => d.data())
+        .filter((d) => d.processedDate === searchDate);
+
+      if (candidates.length === 0) {
+        notFound.push(tid);
+        continue;
+      }
+
+      // pick latest by processedAt
+      candidates.sort(
+        (a, b) => (b.processedAt || 0) - (a.processedAt || 0)
+      );
+
       foundDocs.push({
         trackingId: tid,
-        ...data,
+        ...candidates[0],
       });
     }
 
