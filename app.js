@@ -16,9 +16,9 @@ import { db } from "./firebaseAdmin.js";
 const app = express();
 
 // ----------------- Directories -----------------
-const UPLOAD_DIR = "uploads";                 // temp upload dir (ephemeral)
-const OUTPUT_DIR = "outputs";                 // outputs (zip + reprint pdfs)
-const PERMA_DIR = "data/original_pdfs";       // permanent originals (Solution B)
+const UPLOAD_DIR = "uploads"; // temp upload dir (ephemeral)
+const OUTPUT_DIR = "outputs"; // outputs (zip + reprint pdfs)
+const PERMA_DIR = "data/original_pdfs"; // permanent originals (Solution B)
 
 for (const dir of [UPLOAD_DIR, OUTPUT_DIR, PERMA_DIR]) {
   if (!fs.existsSync(dir)) {
@@ -131,7 +131,7 @@ app.post(
 app.post("/upload-sku-db", upload.single("skuDb"), async (req, res) => {
   try {
     const file = req.file;
-    if (!file) {
+       if (!file) {
       return res.status(400).json({ error: "Missing skuDb CSV file" });
     }
 
@@ -302,7 +302,7 @@ app.post("/crop", async (req, res) => {
 
     for (let i = 0; i < pageCount; i++) {
       const orderId = orderIdsByPage[i] || null;
-      let trackingId = trackingIdsByPage[i] || null;   // can be backfilled from CSV row
+      let trackingId = trackingIdsByPage[i] || null; // can be backfilled from CSV row
 
       // Optional: remove duplicate labels for SAME Order Id
       if (removeDuplicates && orderId) {
@@ -588,6 +588,23 @@ app.post("/crop", async (req, res) => {
       return a.sku.localeCompare(b.sku);
     });
 
+    // ---- Summary stats for label PDF (for last page) ----
+    const totalLabels = jobs.length;
+
+    const uniqueOrderIdsSet = new Set(
+      jobs
+        .map((j) => j.orderId)
+        .filter(Boolean)
+    );
+    const totalUniqueOrders = uniqueOrderIdsSet.size;
+
+    const totalSkusInPicklist = pickItemsSorted.length;
+
+    const totalUnitsInPicklist = pickItemsSorted.reduce(
+      (sum, item) => sum + (Number(item.qty) || 0),
+      0
+    );
+
     let index = 1;
     for (const item of pickItemsSorted) {
       const productText = item.product || "";
@@ -653,6 +670,34 @@ app.post("/crop", async (req, res) => {
 
       y -= lineHeight;
       index++;
+    }
+
+    // -------- Add SUMMARY PAGE to fullDoc (main labels PDF) --------
+    const summaryPage = fullDoc.addPage([label.width, label.height]);
+    const { height: summaryH } = summaryPage.getSize();
+    let sy = summaryH - 20; // start near top
+
+    const summaryLines = [
+      "SUMMARY",
+      `Total Labels (Label + Invoice Pairs): ${totalLabels}`,
+      `Total Unique Orders: ${totalUniqueOrders}`,
+      `Total SKUs in Picklist: ${totalSkusInPicklist}`,
+      `Total Units (Qty): ${totalUnitsInPicklist}`,
+    ];
+
+    for (let i = 0; i < summaryLines.length; i++) {
+      const line = summaryLines[i];
+      const size = i === 0 ? 12 : 8; // bigger title
+
+      summaryPage.drawText(line, {
+        x: 10,
+        y: sy,
+        font: fullFont,
+        size,
+        color: rgb(0, 0, 0),
+      });
+
+      sy -= size + 6;
     }
 
     // -------- Create ZIP with all PDFs --------
@@ -741,7 +786,7 @@ app.post("/crop", async (req, res) => {
             trackingId: job.trackingId || null,
             rawSku: job.rawSku || null,
             finalSku: job.finalSku || null,
-            qtyRaw: job.qtyRaw || null,          // <- store qtyRaw
+            qtyRaw: job.qtyRaw || null, // <- store qtyRaw
             productName: job.productName || "",
             labelBox: label,
             invoiceBox: invoice,
@@ -1232,4 +1277,3 @@ const port = process.env.PORT || 3000;
 app.listen(port, "0.0.0.0", () =>
   console.log(`Server running on port ${port}`)
 );
- 
