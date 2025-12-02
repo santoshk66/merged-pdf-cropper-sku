@@ -1,3 +1,5 @@
+// ---------- Helpers: date presets & basic UI ----------
+
 function setPresetDate(preset) {
   const input = document.getElementById("dateInput");
   const today = new Date();
@@ -35,15 +37,18 @@ function updateIdsUI() {
 }
 
 function clearForm() {
-  document.getElementById("ids").value = "";
-  document.getElementById("dateInput").value = "";
-  const type = getSearchType();
-  const what = type === "tracking" ? "tracking IDs" : "order IDs";
+  const idsEl = document.getElementById("ids");
+  const dateEl = document.getElementById("dateInput");
+  if (idsEl) idsEl.value = "";
+  if (dateEl) dateEl.value = "";
+  const what = getSearchType() === "tracking" ? "tracking IDs" : "order IDs";
   setLog(`Cleared input. Waiting for ${what}...`);
 }
 
 function setLog(message, type) {
   const log = document.getElementById("log");
+  if (!log) return;
+
   const className =
     type === "ok"
       ? "log-line-ok"
@@ -57,6 +62,8 @@ function setLog(message, type) {
     '<div class="log-title">Status</div>' +
     `<div class="${className}">${message}</div>`;
 }
+
+// ---------- Flow 1: OLD reprint using saved processed labels (/reprint-labels) ----------
 
 async function reprint() {
   const btn = document.getElementById("btnReprint");
@@ -94,7 +101,7 @@ async function reprint() {
   }
 
   try {
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     const what = type === "tracking" ? "tracking ID(s)" : "order ID(s)";
     setLog(
       `Processing ${ids.length} ${what}...\n• Date: ${
@@ -117,7 +124,7 @@ async function reprint() {
 
     if (data.error) {
       setLog(`Error: ${data.error}`, "error");
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
       return;
     }
 
@@ -172,11 +179,11 @@ async function reprint() {
     console.error(err);
     setLog("Unexpected error: " + err.message, "error");
   } finally {
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
   }
 }
 
-/* --------- OCR: read tracking IDs from uploaded image (robust) --------- */
+// ---------- OCR: read tracking IDs from uploaded image (existing feature) ----------
 
 async function extractTrackingIdsFromImage() {
   const fileInput = document.getElementById("imageInput");
@@ -185,7 +192,10 @@ async function extractTrackingIdsFromImage() {
     return;
   }
 
-  if (typeof Tesseract === "undefined" || typeof Tesseract.recognize !== "function") {
+  if (
+    typeof Tesseract === "undefined" ||
+    typeof Tesseract.recognize !== "function"
+  ) {
     setLog(
       "OCR library (Tesseract.js) is not loaded. Please check your internet connection.",
       "error"
@@ -202,81 +212,297 @@ async function extractTrackingIdsFromImage() {
     img.src = URL.createObjectURL(file);
     await img.decode();
 
-    // Upscale into canvas for better OCR
+    // Draw onto canvas at 2x for better OCR
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
-    const scale = 2; // upscale factor
+    const scale = 2;
     canvas.width = img.width * scale;
     canvas.height = img.height * scale;
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    // Run OCR on the upscaled image
-    const result = await Tesseract.recognize(canvas.toDataURL("image/png"), "eng", {
+    const dataUrl = canvas.toDataURL("image/png");
+
+    const result = await Tesseract.recognize(dataUrl, "eng", {
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-      tessedit_pageseg_mode: 6, // block of text
+      tessedit_pageseg_mode: 6,
     });
 
-    let rawText = (result && result.data && result.data.text) || "";
-    rawText = rawText.toUpperCase();
-    console.log("RAW OCR TEXT:", rawText);
+    const rawText = (result && result.data && result.data.text) || "";
+    const text = rawText.toUpperCase();
+    console.log("OCR raw text:", text);
 
-    // 1) Primary pattern: a few letters + many digits (e.g. FMPC5476348135)
-    let matches = Array.from(
-      rawText.matchAll(/\b[A-Z]{3,6}\s*\d{6,}\b/g)
-    ).map((m) => m[0].replace(/\s+/g, ""));
+    // Primary pattern: FMPP / FMPC / etc + digits
+    let matches =
+      text.match(/\b[A-Z]{3,6}\s*\d{6,}\b/g) ||
+      text.match(/\b\d{9,}\b/g); // fallback: long pure numbers
 
-    // 2) If still nothing, fallback to long digit sequences (11+ digits)
-    if (!matches.length) {
-      const digitMatches = Array.from(
-        rawText.matchAll(/\b\d{9,}\b/g)
-      ).map((m) => m[0]);
-
-      // if we find only numbers, we still push them as-is
-      matches = digitMatches;
-    }
-
-    if (!matches.length) {
+    if (!matches || matches.length === 0) {
       setLog(
-        "OCR ran successfully but no tracking IDs were found in the text. Try a slightly clearer / zoomed screenshot.",
+        "OCR ran successfully but no tracking IDs were found. Try a clearer / zoomed screenshot.",
         "warn"
       );
       return;
     }
 
-    // Deduplicate + merge with existing textarea IDs
+    // Deduplicate
+    const unique = Array.from(new Set(matches.map((m) => m.trim())));
+
     const textarea = document.getElementById("ids");
-    const existing = textarea.value
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const old = (textarea.value || "").trim();
+    const merged = old ? old + "\n" + unique.join("\n") : unique.join("\n");
+    textarea.value = merged;
 
-    const merged = Array.from(new Set([...existing, ...matches]));
-    textarea.value = merged.join("\n");
-
-    // Force search type to tracking
-    const trackingRadio = document.querySelector(
-      "input[name='searchType'][value='tracking']"
-    );
-    if (trackingRadio) {
-      trackingRadio.checked = true;
-    }
+    // Set mode to tracking, as OCR is only for tracking IDs
+    const radio = document.querySelector('input[name="searchType"][value="tracking"]');
+    if (radio) radio.checked = true;
     updateIdsUI();
 
-    setLog(`OCR success! Found ${matches.length} ID(s) and added to the list.`, "ok");
+    setLog(
+      `OCR success! Found ${unique.length} tracking ID(s) and added to the list.`,
+      "ok"
+    );
   } catch (err) {
-    console.error(err);
+    console.error("OCR error:", err);
     setLog("OCR failed: " + err.message, "error");
   }
 }
 
-/* --------- init search-type toggle + OCR button --------- */
-const searchTypeRadios = document.querySelectorAll("input[name='searchType']");
-searchTypeRadios.forEach((r) =>
-  r.addEventListener("change", () => updateIdsUI())
-);
-updateIdsUI();
+// ---------- NEW FLOW 2: Reprint using uploaded PDFs only (/reprint-from-pdfs) ----------
 
-const ocrButton = document.getElementById("btnOcrFromImage");
-if (ocrButton) {
-  ocrButton.addEventListener("click", extractTrackingIdsFromImage);
+// In-memory state for uploaded PDFs and detected pages
+let uploadedPdfFiles = []; // File[]
+let uploadedPageIndex = []; // { fileIndex, pageIndex, orderId, trackingId }
+
+// Detect orderId inside PDF page text
+function detectOrderId(text) {
+  if (!text) return "";
+  const m = text.match(/\bOD[0-9]{10,}\b/i);
+  return m ? m[0].toUpperCase() : "";
 }
+
+// Detect trackingId inside PDF page text
+function detectTrackingId(text) {
+  if (!text) return "";
+  // First, something like FMPP / FMPC / SF / etc + digits
+  const m1 = text.match(/\b(FMPP|FMPC|SF|SPC|BLUEDART|ECOM)\s*\d{6,}\b/i);
+  if (m1) return m1[0].toUpperCase();
+
+  // Fallback: long pure numeric id
+  const m2 = text.match(/\b\d{9,}\b/g);
+  if (m2 && m2.length > 0) {
+    return m2[0].toUpperCase();
+  }
+
+  return "";
+}
+
+// Scan all uploaded PDFs in browser using pdf.js
+async function indexUploadedPdfs() {
+  const input = document.getElementById("pdfFiles");
+  if (!input || !input.files || input.files.length === 0) {
+    setLog("Please select at least one PDF to scan.", "warn");
+    return;
+  }
+
+  if (!window.pdfjsLib) {
+    setLog("pdf.js is not loaded. Please check internet connection.", "error");
+    return;
+  }
+
+  uploadedPdfFiles = Array.from(input.files);
+  uploadedPageIndex = [];
+
+  setLog(
+    `Scanning ${uploadedPdfFiles.length} PDF(s) for order IDs and tracking IDs... this may take some time.`,
+    "ok"
+  );
+
+  try {
+    let totalPages = 0;
+
+    for (let i = 0; i < uploadedPdfFiles.length; i++) {
+      const file = uploadedPdfFiles[i];
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const text = textContent.items.map((it) => it.str).join(" ");
+
+        const orderId = detectOrderId(text);
+        const trackingId = detectTrackingId(text);
+
+        uploadedPageIndex.push({
+          fileIndex: i,
+          pageIndex: pageNum - 1,
+          orderId,
+          trackingId,
+        });
+
+        totalPages++;
+      }
+    }
+
+    const mappedWithId = uploadedPageIndex.filter(
+      (p) => p.orderId || p.trackingId
+    );
+
+    setLog(
+      `Scan completed.\nTotal pages scanned: ${totalPages}.\nPages with detected IDs: ${mappedWithId.length}.\n\nNow enter the tracking IDs or order IDs above and click "Reprint from Uploaded PDFs".`,
+      "ok"
+    );
+  } catch (err) {
+    console.error("Index PDFs error:", err);
+    setLog("Failed to scan PDFs: " + err.message, "error");
+  }
+}
+
+// Use uploaded PDFs + index to reprint selected IDs
+async function reprintFromUploadedPdfs() {
+  if (!uploadedPdfFiles.length || !uploadedPageIndex.length) {
+    setLog("First upload and scan PDFs using 'Scan PDFs for IDs'.", "warn");
+    return;
+  }
+
+  const type = getSearchType();
+  const idsRaw = (document.getElementById("ids").value || "").trim();
+
+  if (!idsRaw) {
+    const what = type === "tracking" ? "tracking ID" : "order ID";
+    setLog(`Please enter at least one ${what}.`, "warn");
+    return;
+  }
+
+  const ids = idsRaw
+    .split(/[\n,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!ids.length) {
+    const what = type === "tracking" ? "tracking IDs" : "order IDs";
+    setLog(`No valid ${what} found in input.`, "warn");
+    return;
+  }
+
+  let requestedTracking = [];
+  let requestedOrders = [];
+  if (type === "tracking") {
+    requestedTracking = ids;
+  } else {
+    requestedOrders = ids;
+  }
+
+  // Filter pages that match requested IDs
+  const neededPages = uploadedPageIndex.filter((p) => {
+    const t = (p.trackingId || "").trim();
+    const o = (p.orderId || "").trim();
+
+    const matchTracking =
+      requestedTracking.length && t && requestedTracking.includes(t);
+    const matchOrder =
+      requestedOrders.length && o && requestedOrders.includes(o);
+
+    return matchTracking || matchOrder;
+  });
+
+  if (!neededPages.length) {
+    setLog(
+      "No matching pages found in uploaded PDFs for given IDs. Check IDs or scan again.",
+      "warn"
+    );
+    return;
+  }
+
+  const btn = document.getElementById("btnReprintFromPdfs");
+  if (btn) btn.disabled = true;
+
+  try {
+    setLog(
+      `Sending PDFs to server and building reprint PDF...\nMatching pages: ${neededPages.length}.`,
+      "ok"
+    );
+
+    const fd = new FormData();
+    // attach all PDFs
+    uploadedPdfFiles.forEach((file) => fd.append("pdfs", file));
+    // attach index + requested IDs
+    fd.append(
+      "index",
+      JSON.stringify({
+        pages: neededPages,
+        trackingIds: requestedTracking,
+        orderIds: requestedOrders,
+      })
+    );
+
+    const res = await fetch("/reprint-from-pdfs", {
+      method: "POST",
+      body: fd,
+    });
+
+    const data = await res.json();
+    console.log("Reprint-from-pdfs result:", data);
+
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Server error: ${res.status}`);
+    }
+
+    if (data.url) {
+      const a = document.createElement("a");
+      a.href = data.url;
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setLog(
+        `✅ Reprint PDF ready from uploaded PDFs.\nFile: ${data.url}\nLabel+Invoice pairs: ${
+          data.pagePairs || "?"
+        }`,
+        "ok"
+      );
+    } else {
+      setLog("Server did not return a PDF URL.", "warn");
+    }
+  } catch (err) {
+    console.error("reprintFromUploadedPdfs error:", err);
+    setLog("Reprint from PDFs failed: " + err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ---------- Wire up events on load ----------
+
+window.addEventListener("DOMContentLoaded", () => {
+  // Search type toggle
+  const radios = document.querySelectorAll("input[name='searchType']");
+  radios.forEach((r) => {
+    r.addEventListener("change", updateIdsUI);
+  });
+  updateIdsUI();
+
+  // Old flow button
+  const btnReprint = document.getElementById("btnReprint");
+  if (btnReprint) {
+    btnReprint.addEventListener("click", reprint);
+  }
+
+  // OCR button
+  const ocrBtn = document.getElementById("btnOcrFromImage");
+  if (ocrBtn) {
+    ocrBtn.addEventListener("click", extractTrackingIdsFromImage);
+  }
+
+  // New flow buttons
+  const btnIndexPdfs = document.getElementById("btnIndexPdfs");
+  if (btnIndexPdfs) {
+    btnIndexPdfs.addEventListener("click", indexUploadedPdfs);
+  }
+
+  const btnReprintFromPdfs = document.getElementById("btnReprintFromPdfs");
+  if (btnReprintFromPdfs) {
+    btnReprintFromPdfs.addEventListener("click", reprintFromUploadedPdfs);
+  }
+});
