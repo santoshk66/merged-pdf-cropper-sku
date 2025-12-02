@@ -86,7 +86,7 @@
     .field-row {
       display: flex;
       gap: 12px;
-      align-items: center;
+      align-items: flex-start;
       margin-top: 14px;
       flex-wrap: wrap;
     }
@@ -98,7 +98,8 @@
       min-width: 160px;
     }
 
-    input[type="date"] {
+    input[type="date"],
+    input[type="file"] {
       padding: 8px 10px;
       border-radius: 8px;
       border: 1px solid #d1d5db;
@@ -107,7 +108,8 @@
       width: 100%;
     }
 
-    input[type="date"]:focus {
+    input[type="date"]:focus,
+    input[type="file"]:focus {
       border-color: #2563eb;
       box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
     }
@@ -120,62 +122,56 @@
     }
 
     .preset-btn {
-      border: none;
-      background: #f3f4f6;
-      color: #374151;
-      font-size: 11px;
-      padding: 4px 8px;
+      background: #e5f2ff;
       border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      border: none;
       cursor: pointer;
+      color: #1d4ed8;
     }
 
     .preset-btn:hover {
-      background: #e5e7eb;
+      background: #dbeafe;
     }
 
     .actions {
-      margin-top: 18px;
       display: flex;
       gap: 10px;
-      align-items: center;
+      margin-top: 16px;
       flex-wrap: wrap;
     }
 
-    .btn-primary {
-      border: none;
-      background: #2563eb;
-      color: #ffffff;
-      font-size: 14px;
-      padding: 10px 18px;
+    .btn-primary,
+    .btn-secondary {
       border-radius: 999px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      font-weight: 500;
+      gap: 6px;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: #ffffff;
     }
 
     .btn-primary:disabled {
-      opacity: 0.6;
-      cursor: default;
-    }
-
-    .btn-primary:hover:not(:disabled) {
-      background: #1d4ed8;
+      opacity: 0.7;
+      cursor: wait;
     }
 
     .btn-secondary {
-      border: none;
-      background: transparent;
-      color: #4b5563;
-      font-size: 13px;
-      padding: 8px 10px;
-      border-radius: 999px;
-      cursor: pointer;
+      background: #f3f4f6;
+      color: #374151;
     }
 
     .btn-secondary:hover {
-      background: #f3f4f6;
+      background: #e5e7eb;
     }
 
     .badge {
@@ -195,7 +191,7 @@
       font-size: 12px;
       white-space: pre-line;
       border: 1px dashed #e5e7eb;
-      max-height: 220px;
+      max-height: 260px;
       overflow-y: auto;
     }
 
@@ -238,6 +234,26 @@
 
     .search-toggle input[type="radio"] {
       cursor: pointer;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 18px;
+      margin-bottom: 4px;
+      color: #374151;
+    }
+
+    .section-subtitle {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 8px;
     }
 
     @media (max-width: 640px) {
@@ -312,7 +328,7 @@
       </label>
     </div>
 
-        <div>
+    <div>
       <label for="ids" id="idsLabel">Tracking IDs</label>
       <textarea id="ids" placeholder="Example:
 FMPP1234567
@@ -320,18 +336,24 @@ FMPP7654321
 FMPP9998887"></textarea>
     </div>
 
-    <!-- 🔹 NEW: Upload screenshot and read tracking IDs -->
+    <!-- 🔹 Existing OCR from screenshot -->
     <div class="field-row">
       <div class="field-group">
         <label for="imageInput">Or upload screenshot of Tracking IDs</label>
         <input type="file" id="imageInput" accept="image/*" />
-        <div class="hint" style="font-size:12px;color:#6b7280;margin-top:4px;">
+        <div class="hint">
           We will read FMPP / FMPC tracking IDs from the image and add them to the box above.
         </div>
         <button type="button" id="btnOcrFromImage" class="btn-secondary" style="margin-top:6px;">
           📷 Read IDs from Image
         </button>
       </div>
+    </div>
+
+    <!-- 🔹 OLD FLOW (Firestore) – Date filter -->
+    <div class="section-title">Flow 1 – Use saved processed labels (old flow)</div>
+    <div class="section-subtitle">
+      Use this when you already processed labels earlier and want to fetch them by date.
     </div>
 
     <div class="field-row">
@@ -350,12 +372,37 @@ FMPP9998887"></textarea>
     </div>
 
     <div class="actions">
-      <button id="btnReprint" class="btn-primary" onclick="reprint()">
+      <button id="btnReprint" class="btn-primary" type="button">
         <span>🔍</span>
-        <span>Fetch & Download PDF</span>
+        <span>Fetch & Download PDF (saved data)</span>
       </button>
       <button class="btn-secondary" type="button" onclick="clearForm()">
-        Clear
+        Clear IDs & Date
+      </button>
+    </div>
+
+    <!-- 🔹 NEW FLOW – Upload PDFs of the day -->
+    <div class="section-title" style="margin-top:22px;">Flow 2 – Upload today's PDFs and reprint</div>
+    <div class="section-subtitle">
+      Upload all label PDFs you processed today. System will read order IDs and tracking IDs from those PDFs. Then you enter the IDs you want to reprint.
+    </div>
+
+    <div class="field-row">
+      <div class="field-group">
+        <label for="pdfFiles">Upload label PDFs (you processed in a day)</label>
+        <input type="file" id="pdfFiles" accept="application/pdf" multiple />
+        <div class="hint">
+          Select all PDFs for that day together (Ctrl + Click). Then click "Scan PDFs for IDs".
+        </div>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:12px;">
+      <button id="btnIndexPdfs" class="btn-secondary" type="button">
+        🔎 Scan PDFs for IDs
+      </button>
+      <button id="btnReprintFromPdfs" class="btn-primary" type="button">
+        📄 Reprint from Uploaded PDFs
       </button>
     </div>
 
@@ -365,6 +412,15 @@ FMPP9998887"></textarea>
     </div>
   </div>
 
+  <!-- pdf.js for reading uploaded PDFs in browser -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script>
+    if (window["pdfjsLib"]) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+  </script>
+  <!-- Tesseract for OCR -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.5/dist/tesseract.min.js"></script>
   <script src="reprint.js"></script>
 </body>
