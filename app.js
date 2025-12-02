@@ -1147,6 +1147,114 @@ app.post("/reprint-labels", async (req, res) => {
   }
 });
 
+// ----------------- Reprint labels from uploaded PDFs only (no history) -----------------
+/**
+ * POST /reprint-from-pdfs
+ * multipart/form-data:
+ *  - pdfs: multiple PDF files (label PDFs processed in that day)
+ *  - index: JSON string {
+ *        pages: [{ fileIndex, pageIndex, orderId, trackingId }, ...],
+ *        trackingIds: [...],
+ *        orderIds: [...]
+ *    }
+ *
+ * We only use the pages[] (already filtered on frontend) + pdfs[].
+ */
+app.post("/reprint-from-pdfs", upload.array("pdfs"), async (req, res) => {
+  try {
+    const indexJson = req.body.index;
+    if (!indexJson) {
+      return res.status(400).json({ error: "Missing index mapping" });
+    }
+
+    const { pages = [] } = JSON.parse(indexJson || "{}");
+    if (!Array.isArray(pages) || pages.length === 0) {
+      return res.status(400).json({
+        error: "No page mapping received. Please scan PDFs first.",
+      });
+    }
+
+    const files = req.files || [];
+    if (!files.length) {
+      return res.status(400).json({ error: "No PDF files uploaded" });
+    }
+
+    // Group pages by fileIndex for efficiency
+    const byFile = new Map(); // key = fileIndex, val = array of { pageIndex }
+    for (const p of pages) {
+      const fileIndex = Number(p.fileIndex);
+      const pageIndex = Number(p.pageIndex);
+      if (Number.isNaN(fileIndex) || Number.isNaN(pageIndex)) continue;
+      if (!byFile.has(fileIndex)) byFile.set(fileIndex, []);
+      byFile.get(fileIndex).push(pageIndex);
+    }
+
+    if (!byFile.size) {
+      return res.status(400).json({
+        error: "No valid page indices in mapping.",
+      });
+    }
+
+    const outDoc = await PDFDocument.create();
+
+    // Use same fixed crop coordinates as in frontend auto-mode
+    const LABEL_BOX = { x: 189.6, y: 27.3, width: 216.0, height: 356.0 };
+    const INVOICE_BOX = { x: 35.6, y: 388.0, width: 521.0, height: 395.0 };
+
+    for (const [fileIndex, pageIndexes] of byFile.entries()) {
+      const file = files[fileIndex];
+      if (!file) continue;
+
+      const pdfBytes = await fsPromises.readFile(file.path);
+      const srcPdf = await PDFDocument.load(pdfBytes);
+
+      for (const pageIndex of pageIndexes) {
+        if (pageIndex < 0 || pageIndex >= srcPdf.getPageCount()) continue;
+
+        const [page] = await outDoc.copyPages(srcPdf, [pageIndex]);
+        const { height } = page.getSize();
+        const embedded = await outDoc.embedPage(page);
+
+        // Label page
+        const labelPage = outDoc.addPage([LABEL_BOX.width, LABEL_BOX.height]);
+        labelPage.drawPage(embedded, {
+          x: -LABEL_BOX.x,
+          y: -(height - LABEL_BOX.y - LABEL_BOX.height),
+        });
+
+        // Invoice page
+        const invoicePage = outDoc.addPage([
+          INVOICE_BOX.width,
+          INVOICE_BOX.height,
+        ]);
+        invoicePage.drawPage(embedded, {
+          x: -INVOICE_BOX.x,
+          y: -(height - INVOICE_BOX.y - INVOICE_BOX.height),
+        });
+      }
+    }
+
+    if (outDoc.getPageCount() === 0) {
+      return res.status(400).json({
+        error: "No pages were generated from uploaded PDFs.",
+      });
+    }
+
+    const outName = `reprint-from-pdfs-${Date.now()}.pdf`;
+    const outPath = path.join(OUTPUT_DIR, outName);
+    const outBytes = await outDoc.save();
+    await fsPromises.writeFile(outPath, outBytes);
+
+    res.json({
+      url: `/outputs/${outName}`,
+      pagePairs: outDoc.getPageCount() / 2, // each pair = label + invoice
+    });
+  } catch (err) {
+    console.error("Error in /reprint-from-pdfs:", err);
+    res.status(500).json({ error: "Failed to reprint from uploaded PDFs" });
+  }
+});
+
 // ----------------- Transfer Tasks (Another Office Picklist) -----------------
 
 /**
