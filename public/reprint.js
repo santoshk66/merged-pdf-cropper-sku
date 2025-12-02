@@ -296,19 +296,26 @@ function detectTrackingId(text) {
 function detectRawSku(text) {
   if (!text) return "";
 
-  // Pattern like "SKU: XXXXX"
-  const m1 = text.match(/SKU\s*[:\-]\s*([A-Z0-9\-\._]+)/i);
+  // 1) Try exact pattern "SKU: XYZ" – keep as fallback
+  const m1 = text.match(/SKU\s*[:\-]\s*([A-Z0-9\-_.]+)/i);
   if (m1 && m1[1]) {
     return m1[1].trim().toUpperCase();
   }
 
-  // Pattern: "SKU" then next token on next line
-  const m2 = text.match(/SKU[\s\n]+([A-Z0-9\-\._]+)/i);
-  if (m2 && m2[1]) {
-    return m2[1].trim().toUpperCase();
+  // 2) Try detecting first part of description:
+  //    Example: "1sIndian-wifi-Bulb-camera | Maizic Smarthome..."
+  const pipeMatch = text.match(/([A-Za-z0-9\-\._]+)\s*\|/);
+  if (pipeMatch && pipeMatch[1]) {
+    const sku = pipeMatch[1].trim().toUpperCase();
+    if (sku.length > 2) return sku;
   }
 
-  // You can tweak further based on how SKU appears on your label
+  // 3) Try first token of the long product description line
+  const firstWordMatch = text.match(/\b([A-Za-z0-9\-_.]{4,})/);
+  if (firstWordMatch) {
+    return firstWordMatch[1].trim().toUpperCase();
+  }
+
   return "";
 }
 
