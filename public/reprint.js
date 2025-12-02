@@ -317,7 +317,6 @@ function detectRawSku(text) {
   }
 
   return "";
-}
 
 // Scan uploaded PDFs using pdf.js and build index
 async function indexUploadedPdfs() {
