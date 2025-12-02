@@ -1167,9 +1167,8 @@ app.post("/reprint-from-pdfs", upload.array("pdfs"), async (req, res) => {
       return res.status(400).json({ error: "Missing index mapping" });
     }
 
-    const parsed = JSON.parse(indexJson || "{}");
-    const pages = Array.isArray(parsed.pages) ? parsed.pages : [];
-    if (!pages.length) {
+    const { pages = [] } = JSON.parse(indexJson || "{}");
+    if (!Array.isArray(pages) || pages.length === 0) {
       return res.status(400).json({
         error: "No page mapping received. Please scan PDFs first.",
       });
@@ -1180,31 +1179,14 @@ app.post("/reprint-from-pdfs", upload.array("pdfs"), async (req, res) => {
       return res.status(400).json({ error: "No PDF files uploaded" });
     }
 
-    // 🔹 1) Load SKU corrections ONLY for this route
-    const skuCorrectionMap = {};
-    const snap = await db.collection("skuCorrections").get();
-    snap.forEach((doc) => {
-      const d = doc.data() || {};
-      const oldSku =
-        (d.oldSku || d.old || d.old_sku || "").toString().trim().toUpperCase();
-      const newSku =
-        (d.newSku || d.new || d.new_sku || "").toString().trim().toUpperCase();
-      if (oldSku && newSku) {
-        skuCorrectionMap[oldSku] = newSku;
-      }
-    });
-
-    // 🔹 2) Group pages by fileIndex, keep rawSku from frontend
-    const byFile = new Map(); // fileIndex -> [{ pageIndex, rawSku }]
+    // Group pages by fileIndex for efficiency
+    const byFile = new Map(); // key = fileIndex, val = array of { pageIndex }
     for (const p of pages) {
       const fileIndex = Number(p.fileIndex);
       const pageIndex = Number(p.pageIndex);
       if (Number.isNaN(fileIndex) || Number.isNaN(pageIndex)) continue;
-
-      const rawSku = (p.rawSku || "").toString().trim().toUpperCase();
-
       if (!byFile.has(fileIndex)) byFile.set(fileIndex, []);
-      byFile.get(fileIndex).push({ pageIndex, rawSku });
+      byFile.get(fileIndex).push(pageIndex);
     }
 
     if (!byFile.size) {
@@ -1214,54 +1196,33 @@ app.post("/reprint-from-pdfs", upload.array("pdfs"), async (req, res) => {
     }
 
     const outDoc = await PDFDocument.create();
-    const font = await outDoc.embedFont(StandardFonts.Helvetica);
 
-    // same fixed crop boxes as before
+    // Use same fixed crop coordinates as in frontend auto-mode
     const LABEL_BOX = { x: 189.6, y: 27.3, width: 216.0, height: 356.0 };
     const INVOICE_BOX = { x: 35.6, y: 388.0, width: 521.0, height: 395.0 };
 
-    for (const [fileIndex, pageInfos] of byFile.entries()) {
+    for (const [fileIndex, pageIndexes] of byFile.entries()) {
       const file = files[fileIndex];
       if (!file) continue;
 
       const pdfBytes = await fsPromises.readFile(file.path);
       const srcPdf = await PDFDocument.load(pdfBytes);
 
-      for (const info of pageInfos) {
-        const pageIndex = info.pageIndex;
-        const rawSku = (info.rawSku || "").toUpperCase();
-
+      for (const pageIndex of pageIndexes) {
         if (pageIndex < 0 || pageIndex >= srcPdf.getPageCount()) continue;
 
         const [page] = await outDoc.copyPages(srcPdf, [pageIndex]);
         const { height } = page.getSize();
         const embedded = await outDoc.embedPage(page);
 
-        // 🔹 Map SKU using skuCorrectionMap
-        let finalSku = rawSku;
-        if (rawSku && skuCorrectionMap[rawSku]) {
-          finalSku = skuCorrectionMap[rawSku];
-        }
-
-        // ----- LABEL PAGE -----
+        // Label page
         const labelPage = outDoc.addPage([LABEL_BOX.width, LABEL_BOX.height]);
         labelPage.drawPage(embedded, {
           x: -LABEL_BOX.x,
           y: -(height - LABEL_BOX.y - LABEL_BOX.height),
         });
 
-        // 🔹 Print mapped SKU text on label (top-left small)
-        if (finalSku) {
-          labelPage.drawText(`SKU: ${finalSku}`, {
-            x: 8,
-            y: LABEL_BOX.height - 14,
-            size: 8,
-            font,
-            color: rgb(0, 0, 0),
-          });
-        }
-
-        // ----- INVOICE PAGE -----
+        // Invoice page
         const invoicePage = outDoc.addPage([
           INVOICE_BOX.width,
           INVOICE_BOX.height,
@@ -1286,7 +1247,7 @@ app.post("/reprint-from-pdfs", upload.array("pdfs"), async (req, res) => {
 
     res.json({
       url: `/outputs/${outName}`,
-      pagePairs: outDoc.getPageCount() / 2, // label+invoice
+      pagePairs: outDoc.getPageCount() / 2, // each pair = label + invoice
     });
   } catch (err) {
     console.error("Error in /reprint-from-pdfs:", err);
