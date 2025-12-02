@@ -1,4 +1,4 @@
-// ================== BASIC HELPERS: DATE + UI ==================
+// ---------- Helpers: date presets & basic UI ----------
 
 function setPresetDate(preset) {
   const input = document.getElementById("dateInput");
@@ -63,8 +63,7 @@ function setLog(message, type) {
     `<div class="${className}">${message}</div>`;
 }
 
-// ================== FLOW 1: OLD REPRINT USING SAVED DATA ==================
-// Uses /reprint-labels and DOES NOT detect SKU text.
+// ---------- Flow 1: OLD reprint using saved processed labels (/reprint-labels) ----------
 
 async function reprint() {
   const btn = document.getElementById("btnReprint");
@@ -79,6 +78,7 @@ async function reprint() {
     return;
   }
 
+  // convert input to array of IDs
   const ids = idsRaw
     .split(/[\n,;\s]+/)
     .map((s) => s.trim())
@@ -132,6 +132,7 @@ async function reprint() {
     const notFoundOrders = data.notFoundOrderIds || [];
 
     if (data.url) {
+      // auto trigger download
       const a = document.createElement("a");
       a.href = data.url;
       a.download = "";
@@ -182,7 +183,7 @@ async function reprint() {
   }
 }
 
-// ================== OCR FROM IMAGE (TRACKING IDs ONLY) ==================
+// ---------- OCR: read tracking IDs from uploaded image (existing feature) ----------
 
 async function extractTrackingIdsFromImage() {
   const fileInput = document.getElementById("imageInput");
@@ -206,10 +207,12 @@ async function extractTrackingIdsFromImage() {
   setLog("Reading tracking IDs from image... please wait.", null);
 
   try {
+    // Load into image
     const img = new Image();
     img.src = URL.createObjectURL(file);
     await img.decode();
 
+    // Draw onto canvas at 2x for better OCR
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     const scale = 2;
@@ -228,9 +231,10 @@ async function extractTrackingIdsFromImage() {
     const text = rawText.toUpperCase();
     console.log("OCR raw text:", text);
 
+    // Primary pattern: FMPP / FMPC / etc + digits
     let matches =
       text.match(/\b[A-Z]{3,6}\s*\d{6,}\b/g) ||
-      text.match(/\b\d{9,}\b/g); // fallback: long numbers
+      text.match(/\b\d{9,}\b/g); // fallback: long pure numbers
 
     if (!matches || matches.length === 0) {
       setLog(
@@ -240,6 +244,7 @@ async function extractTrackingIdsFromImage() {
       return;
     }
 
+    // Deduplicate
     const unique = Array.from(new Set(matches.map((m) => m.trim())));
 
     const textarea = document.getElementById("ids");
@@ -247,9 +252,8 @@ async function extractTrackingIdsFromImage() {
     const merged = old ? old + "\n" + unique.join("\n") : unique.join("\n");
     textarea.value = merged;
 
-    const radio = document.querySelector(
-      'input[name="searchType"][value="tracking"]'
-    );
+    // Set mode to tracking, as OCR is only for tracking IDs
+    const radio = document.querySelector('input[name="searchType"][value="tracking"]');
     if (radio) radio.checked = true;
     updateIdsUI();
 
@@ -263,27 +267,27 @@ async function extractTrackingIdsFromImage() {
   }
 }
 
-// ================== FLOW 2: REPRINT FROM UPLOADED PDFs ONLY ==================
-// Here we ALSO read SKU text (rawSku) from labels.
-// SKU mapping itself is done on the backend using skuCorrections.
+// ---------- NEW FLOW 2: Reprint using uploaded PDFs only (/reprint-from-pdfs) ----------
 
-// State for flow 2
+// In-memory state for uploaded PDFs and detected pages
 let uploadedPdfFiles = []; // File[]
-let uploadedPageIndex = []; // { fileIndex, pageIndex, orderId, trackingId, rawSku }
+let uploadedPageIndex = []; // { fileIndex, pageIndex, orderId, trackingId }
 
-// Detect orderId inside page text
+// Detect orderId inside PDF page text
 function detectOrderId(text) {
   if (!text) return "";
   const m = text.match(/\bOD[0-9]{10,}\b/i);
   return m ? m[0].toUpperCase() : "";
 }
 
-// Detect trackingId inside page text
+// Detect trackingId inside PDF page text
 function detectTrackingId(text) {
   if (!text) return "";
+  // First, something like FMPP / FMPC / SF / etc + digits
   const m1 = text.match(/\b(FMPP|FMPC|SF|SPC|BLUEDART|ECOM)\s*\d{6,}\b/i);
   if (m1) return m1[0].toUpperCase();
 
+  // Fallback: long pure numeric id
   const m2 = text.match(/\b\d{9,}\b/g);
   if (m2 && m2.length > 0) {
     return m2[0].toUpperCase();
@@ -292,33 +296,7 @@ function detectTrackingId(text) {
   return "";
 }
 
-// 🔴 Detect raw SKU ONLY for this flow (does not affect old flow)
-function detectRawSku(text) {
-  if (!text) return "";
-
-  // 1) Try exact pattern "SKU: XYZ" – keep as fallback
-  const m1 = text.match(/SKU\s*[:\-]\s*([A-Z0-9\-_.]+)/i);
-  if (m1 && m1[1]) {
-    return m1[1].trim().toUpperCase();
-  }
-
-  // 2) Try detecting first part of description:
-  //    Example: "1sIndian-wifi-Bulb-camera | Maizic Smarthome..."
-  const pipeMatch = text.match(/([A-Za-z0-9\-\._]+)\s*\|/);
-  if (pipeMatch && pipeMatch[1]) {
-    const sku = pipeMatch[1].trim().toUpperCase();
-    if (sku.length > 2) return sku;
-  }
-
-  // 3) Try first token of the long product description line
-  const firstWordMatch = text.match(/\b([A-Za-z0-9\-_.]{4,})/);
-  if (firstWordMatch) {
-    return firstWordMatch[1].trim().toUpperCase();
-  }
-
-  return "";
-
-// Scan uploaded PDFs using pdf.js and build index
+// Scan all uploaded PDFs in browser using pdf.js
 async function indexUploadedPdfs() {
   const input = document.getElementById("pdfFiles");
   if (!input || !input.files || input.files.length === 0) {
@@ -354,14 +332,12 @@ async function indexUploadedPdfs() {
 
         const orderId = detectOrderId(text);
         const trackingId = detectTrackingId(text);
-        const rawSku = detectRawSku(text); // 🔴 NEW: only here
 
         uploadedPageIndex.push({
           fileIndex: i,
           pageIndex: pageNum - 1,
           orderId,
           trackingId,
-          rawSku,
         });
 
         totalPages++;
@@ -417,6 +393,7 @@ async function reprintFromUploadedPdfs() {
     requestedOrders = ids;
   }
 
+  // Filter pages that match requested IDs
   const neededPages = uploadedPageIndex.filter((p) => {
     const t = (p.trackingId || "").trim();
     const o = (p.orderId || "").trim();
@@ -447,13 +424,15 @@ async function reprintFromUploadedPdfs() {
     );
 
     const fd = new FormData();
+    // attach all PDFs
     uploadedPdfFiles.forEach((file) => fd.append("pdfs", file));
-
+    // attach index + requested IDs
     fd.append(
       "index",
       JSON.stringify({
-        pages: neededPages, // includes fileIndex, pageIndex, orderId, trackingId, rawSku
-        // trackingIds / orderIds arrays are not mandatory now since we already filtered
+        pages: neededPages,
+        trackingIds: requestedTracking,
+        orderIds: requestedOrders,
       })
     );
 
@@ -494,25 +473,29 @@ async function reprintFromUploadedPdfs() {
   }
 }
 
-// ================== WIRE EVENTS ==================
+// ---------- Wire up events on load ----------
 
 window.addEventListener("DOMContentLoaded", () => {
+  // Search type toggle
   const radios = document.querySelectorAll("input[name='searchType']");
   radios.forEach((r) => {
     r.addEventListener("change", updateIdsUI);
   });
   updateIdsUI();
 
+  // Old flow button
   const btnReprint = document.getElementById("btnReprint");
   if (btnReprint) {
     btnReprint.addEventListener("click", reprint);
   }
 
+  // OCR button
   const ocrBtn = document.getElementById("btnOcrFromImage");
   if (ocrBtn) {
     ocrBtn.addEventListener("click", extractTrackingIdsFromImage);
   }
 
+  // New flow buttons
   const btnIndexPdfs = document.getElementById("btnIndexPdfs");
   if (btnIndexPdfs) {
     btnIndexPdfs.addEventListener("click", indexUploadedPdfs);
