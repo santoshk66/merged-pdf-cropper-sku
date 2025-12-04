@@ -15,7 +15,7 @@ const statusBadgeEl = document.getElementById("statusBadge");
 const picklistIdLabelEl = document.getElementById("picklistIdLabel");
 const markDoneBtn = document.getElementById("markDoneBtn");
 const resetBtn = document.getElementById("resetBtn");
-const downloadBtn = document.getElementById("downloadBtn"); // NEW
+const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 
 function setStatusBadge(text, bg, color) {
   statusBadgeEl.textContent = text;
@@ -31,7 +31,9 @@ function calcOverallStatus(items) {
     0
   );
 
-  if (remainingTotal === 0) return "All Picked";
+  if (remainingTotal === 0 && items.some(it => (Number(it.requiredQty) || 0) > 0)) {
+    return "All Picked";
+  }
   const pickedSome = items.some(
     (r) => Number(r.pickedQty) > 0 && Number(r.remaining) > 0
   );
@@ -180,7 +182,6 @@ function renderPicklistList() {
   if (!list.length) {
     picklistListEl.innerHTML =
       '<div class="empty-list">No picklists for selected status.</div>';
-    // if current active is not valid under this status filter, clear details
     if (
       !activePicklist ||
       !allPicklists.some((pl) => pl.picklistId === picklistId)
@@ -190,14 +191,14 @@ function renderPicklistList() {
     return;
   }
 
-  // If active picklist is not in this filtered list, switch to first
   if (!activePicklist || !list.some((pl) => pl.picklistId === picklistId)) {
     setActivePicklist(list[0], false);
   }
 
   list.forEach((pl) => {
     const card = document.createElement("div");
-    card.className = "picklist-card" + (pl.picklistId === picklistId ? " active" : "");
+    card.className =
+      "picklist-card" + (pl.picklistId === picklistId ? " active" : "");
     card.dataset.id = pl.picklistId;
 
     const createdAt = pl.createdAt ? new Date(pl.createdAt) : null;
@@ -212,13 +213,19 @@ function renderPicklistList() {
     if (status === "fulfilled") {
       statusLabel = "Fulfilled";
       statusClass += " pl-status-fulfilled";
-    } else if (status === "pending" || status === "all picked" || status === "partial") {
+    } else if (
+      status === "pending" ||
+      status === "all picked" ||
+      status === "partial"
+    ) {
       statusClass += " pl-status-open";
     }
 
-    const totalUnits = pl.totalUnits ?? (Array.isArray(pl.items)
-      ? pl.items.reduce((sum, it) => sum + (Number(it.requiredQty) || 0), 0)
-      : 0);
+    const totalUnits =
+      pl.totalUnits ??
+      (Array.isArray(pl.items)
+        ? pl.items.reduce((sum, it) => sum + (Number(it.requiredQty) || 0), 0)
+        : 0);
     const totalSkus = pl.totalSkus ?? (Array.isArray(pl.items) ? pl.items.length : 0);
 
     card.innerHTML = `
@@ -262,7 +269,6 @@ function setActivePicklist(pl, rerenderList = true) {
   activePicklist = pl;
   picklistId = pl.picklistId;
 
-  // Sort items by requiredQty DESC (big → small)
   picklistItems = (pl.items || [])
     .map((row) => ({
       sku: row.sku,
@@ -285,10 +291,9 @@ function setActivePicklist(pl, rerenderList = true) {
     ? createdAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
     : "-";
 
-  const totalUnits = pl.totalUnits ?? picklistItems.reduce(
-    (sum, it) => sum + (Number(it.requiredQty) || 0),
-    0
-  );
+  const totalUnits =
+    pl.totalUnits ??
+    picklistItems.reduce((sum, it) => sum + (Number(it.requiredQty) || 0), 0);
   const totalSkus = pl.totalSkus ?? picklistItems.length;
 
   picklistIdLabelEl.textContent = picklistId
@@ -355,12 +360,10 @@ function renderTable() {
     bodyEl.appendChild(tr);
   });
 
-  // picked qty input events
   bodyEl.querySelectorAll("input[type=number]").forEach((input) => {
     input.addEventListener("change", onPickedChange);
   });
 
-  // assign button events
   bodyEl.querySelectorAll(".assign-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const idx = Number(btn.getAttribute("data-assign-index"));
@@ -394,7 +397,9 @@ async function assignToOtherOffice(currentPicklistId, row) {
 
   const required = Number(row.requiredQty) || 0;
   const picked = Number(row.pickedQty) || 0;
-  const remaining = Number(row.remaining != null ? row.remaining : required - picked) || 0;
+  const remaining = Number(
+    row.remaining != null ? row.remaining : required - picked
+  ) || 0;
 
   if (remaining <= 0) {
     alert("No remaining quantity to assign for this SKU.");
@@ -407,7 +412,7 @@ async function assignToOtherOffice(currentPicklistId, row) {
     String(defaultQty)
   );
 
-  if (input === null) return; // cancelled
+  if (input === null) return;
 
   const qty = Number(input);
   if (!qty || qty <= 0) {
@@ -440,8 +445,6 @@ async function assignToOtherOffice(currentPicklistId, row) {
     alert(
       `Assigned ${qty} units of ${row.sku} to other office.\nTask ID: ${data.id}`
     );
-    // If later you want, you can also auto-open office-picklist page:
-    // window.open("office-picklist.html", "_blank");
   } catch (err) {
     console.error(err);
     alert("Error assigning to other office.");
@@ -486,7 +489,6 @@ async function savePicklistToServer(statusOverride) {
       }),
     });
 
-    // Update in-memory active & list
     if (activePicklist) {
       activePicklist.items = picklistItems;
       activePicklist.status = status;
@@ -504,21 +506,152 @@ async function savePicklistToServer(statusOverride) {
   }
 }
 
-// ---------- Download active picklist as CSV (NEW) ----------
-function downloadActivePicklistCSV() {
-  if (!picklistItems.length || !picklistId) {
-    alert("No picklist loaded.");
+// ---------- Download PDF (client-side, jsPDF) ----------
+function downloadPicklistPdf() {
+  if (!picklistId || !picklistItems.length) {
+    alert("No picklist selected.");
     return;
   }
 
-  const header = ["S.No", "SKU", "Product", "Required", "Picked", "Remaining", "Status"];
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    alert("PDF library (jsPDF) not loaded. Check internet connection.");
+    return;
+  }
 
-  const rows = picklistItems.map((row, index) => {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF("p", "pt", "a4");
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 40;
+  const marginTop = 40;
+  const lineHeight = 14;
+  let y = marginTop;
+
+  function ensureSpace(requiredHeight) {
+    if (y + requiredHeight > pageHeight - 40) {
+      doc.addPage();
+      y = marginTop;
+      drawTableHeader();
+    }
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("Maizic Picklist", marginX, y);
+  y += lineHeight * 2;
+
+  const createdAt =
+    activePicklist && activePicklist.createdAt
+      ? new Date(activePicklist.createdAt)
+      : null;
+
+  const createdStr = createdAt
+    ? createdAt.toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "-";
+
+  const totalUnits =
+    activePicklist && typeof activePicklist.totalUnits === "number"
+      ? activePicklist.totalUnits
+      : picklistItems.reduce((sum, it) => sum + (Number(it.requiredQty) || 0), 0);
+
+  const totalSkus =
+    activePicklist && typeof activePicklist.totalSkus === "number"
+      ? activePicklist.totalSkus
+      : picklistItems.length;
+
+  const remainingTotal = picklistItems.reduce((sum, it) => {
+    const req = Number(it.requiredQty) || 0;
+    const picked = Number(it.pickedQty) || 0;
+    const rem =
+      it.remaining != null ? Number(it.remaining) : Math.max(req - picked, 0);
+    return sum + rem;
+  }, 0);
+
+  const statusText =
+    activePicklist && activePicklist.status
+      ? activePicklist.status
+      : remainingTotal === 0 && totalUnits > 0
+      ? "All Picked"
+      : "Pending";
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Picklist ID: ${picklistId}`, marginX, y);
+  y += lineHeight;
+  doc.text(`Created: ${createdStr}`, marginX, y);
+  y += lineHeight;
+  doc.text(`Status: ${statusText}`, marginX, y);
+  y += lineHeight;
+  doc.text(`SKUs: ${totalSkus}   Units: ${totalUnits}`, marginX, y);
+  y += lineHeight * 2;
+
+  const colSnoX = marginX;
+  const colSkuX = marginX + 30;
+  const colReqX = marginX + 160;
+  const colPickedX = marginX + 210;
+  const colRemX = marginX + 260;
+  const colStatusX = marginX + 310;
+  const colProdX = marginX + 370;
+  const maxProductWidth = pageWidth - colProdX - 20;
+
+  function drawTableHeader() {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text("S.No", colSnoX, y);
+    doc.text("SKU", colSkuX, y);
+    doc.text("Req.", colReqX, y);
+    doc.text("Picked", colPickedX, y);
+    doc.text("Rem.", colRemX, y);
+    doc.text("Status", colStatusX, y);
+    doc.text("Product", colProdX, y);
+    y += lineHeight;
+    doc.setDrawColor(200);
+    doc.line(marginX, y - lineHeight + 4, pageWidth - marginX, y - lineHeight + 4);
+  }
+
+  drawTableHeader();
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+
+  const rows = [...picklistItems].sort((a, b) => {
+    const diff = (b.requiredQty || 0) - (a.requiredQty || 0);
+    if (diff !== 0) return diff;
+    return (a.sku || "").localeCompare(b.sku || "");
+  });
+
+  function splitProductText(text) {
+    if (!text) return [""];
+    const words = String(text).split(/\s+/);
+    const lines = [];
+    let current = "";
+
+    words.forEach((word) => {
+      const testLine = current ? current + " " + word : word;
+      const width = doc.getTextWidth(testLine);
+      if (width > maxProductWidth && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = testLine;
+      }
+    });
+
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  rows.forEach((row, index) => {
     const required = Number(row.requiredQty) || 0;
     const picked = Number(row.pickedQty) || 0;
-    const remaining = Number(
-      row.remaining != null ? row.remaining : required - picked
-    ) || 0;
+    const remaining =
+      row.remaining != null
+        ? Number(row.remaining)
+        : Math.max(required - picked, 0);
 
     let status = "Pending";
     if (remaining <= 0 && required > 0) {
@@ -527,50 +660,45 @@ function downloadActivePicklistCSV() {
       status = "Partial";
     }
 
-    const fields = [
-      index + 1,
-      row.sku || "",
-      row.product || "",
-      required,
-      picked,
-      remaining,
-      status,
-    ];
+    const productLines = splitProductText(row.product || "");
+    const blockHeight = productLines.length * lineHeight;
 
-    return fields
-      .map((value) => {
-        const v = String(value ?? "");
-        // escape CSV if needed
-        if (/[",\n]/.test(v)) {
-          return '"' + v.replace(/"/g, '""') + '"';
-        }
-        return v;
-      })
-      .join(",");
+    ensureSpace(blockHeight + lineHeight);
+
+    doc.text(String(index + 1), colSnoX, y);
+    doc.text(row.sku || "-", colSkuX, y);
+    doc.text(String(required), colReqX, y);
+    doc.text(String(picked), colPickedX, y);
+    doc.text(String(remaining), colRemX, y);
+    doc.text(status, colStatusX, y);
+    doc.text(productLines[0] || "", colProdX, y);
+
+    for (let i = 1; i < productLines.length; i++) {
+      y += lineHeight;
+      ensureSpace(lineHeight);
+      doc.text(productLines[i], colProdX, y);
+    }
+
+    y += lineHeight;
   });
 
-  const csv = [header.join(","), ...rows].join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(120);
+    doc.text(
+      `Page ${i} of ${pageCount}`,
+      pageWidth - marginX - 60,
+      pageHeight - 20
+    );
+  }
 
-  const a = document.createElement("a");
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
-  const safeId = (picklistId || "picklist").replace(/[^\w\-]+/g, "_");
-
-  a.href = url;
-  a.download = `picklist-${safeId}-${dateStr}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const safeId = String(picklistId).replace(/[^\w\-]+/g, "_");
+  doc.save(`Picklist-${safeId}.pdf`);
 }
 
 // ---------- Buttons ----------
-if (downloadBtn) {
-  downloadBtn.addEventListener("click", downloadActivePicklistCSV);
-}
-
 markDoneBtn.addEventListener("click", () => {
   if (!picklistItems.length) {
     alert("No picklist loaded.");
@@ -590,9 +718,10 @@ markDoneBtn.addEventListener("click", () => {
     if (!ok) return;
   }
 
-  // Close picklist (Fulfilled) but keep it stored
   savePicklistToServer("Fulfilled");
-  alert("Picklist marked as Fulfilled. You can still open it from the list anytime.");
+  alert(
+    "Picklist marked as Fulfilled. You can still open it from the list anytime."
+  );
 });
 
 resetBtn.addEventListener("click", () => {
@@ -607,6 +736,10 @@ resetBtn.addEventListener("click", () => {
   }));
   savePicklistToServer("Pending");
 });
+
+if (downloadPdfBtn) {
+  downloadPdfBtn.addEventListener("click", downloadPicklistPdf);
+}
 
 // ---------- Filter events ----------
 dateFilterEl.addEventListener("change", () => {
