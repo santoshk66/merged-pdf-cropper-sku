@@ -15,6 +15,7 @@ const statusBadgeEl = document.getElementById("statusBadge");
 const picklistIdLabelEl = document.getElementById("picklistIdLabel");
 const markDoneBtn = document.getElementById("markDoneBtn");
 const resetBtn = document.getElementById("resetBtn");
+const downloadBtn = document.getElementById("downloadBtn"); // NEW
 
 function setStatusBadge(text, bg, color) {
   statusBadgeEl.textContent = text;
@@ -503,7 +504,73 @@ async function savePicklistToServer(statusOverride) {
   }
 }
 
+// ---------- Download active picklist as CSV (NEW) ----------
+function downloadActivePicklistCSV() {
+  if (!picklistItems.length || !picklistId) {
+    alert("No picklist loaded.");
+    return;
+  }
+
+  const header = ["S.No", "SKU", "Product", "Required", "Picked", "Remaining", "Status"];
+
+  const rows = picklistItems.map((row, index) => {
+    const required = Number(row.requiredQty) || 0;
+    const picked = Number(row.pickedQty) || 0;
+    const remaining = Number(
+      row.remaining != null ? row.remaining : required - picked
+    ) || 0;
+
+    let status = "Pending";
+    if (remaining <= 0 && required > 0) {
+      status = "Done";
+    } else if (picked > 0 && remaining > 0) {
+      status = "Partial";
+    }
+
+    const fields = [
+      index + 1,
+      row.sku || "",
+      row.product || "",
+      required,
+      picked,
+      remaining,
+      status,
+    ];
+
+    return fields
+      .map((value) => {
+        const v = String(value ?? "");
+        // escape CSV if needed
+        if (/[",\n]/.test(v)) {
+          return '"' + v.replace(/"/g, '""') + '"';
+        }
+        return v;
+      })
+      .join(",");
+  });
+
+  const csv = [header.join(","), ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+  const safeId = (picklistId || "picklist").replace(/[^\w\-]+/g, "_");
+
+  a.href = url;
+  a.download = `picklist-${safeId}-${dateStr}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ---------- Buttons ----------
+if (downloadBtn) {
+  downloadBtn.addEventListener("click", downloadActivePicklistCSV);
+}
+
 markDoneBtn.addEventListener("click", () => {
   if (!picklistItems.length) {
     alert("No picklist loaded.");
