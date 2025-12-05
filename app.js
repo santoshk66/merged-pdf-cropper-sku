@@ -409,17 +409,39 @@ app.post("/crop", async (req, res) => {
       });
     }
 
-    // ---- Sort jobs by SKU ----
-    const withSku = jobs.filter((j) => j.finalSku);
-    const withoutSku = jobs.filter((j) => !j.finalSku);
+   // ---- Sort jobs by SKU using total units (descending) ----
 
-    withSku.sort((a, b) => {
-      const cmp = a.finalSku.localeCompare(b.finalSku);
-      if (cmp !== 0) return cmp;
-      return a.pageIndex - b.pageIndex;
-    });
-
-    const sortedJobs = [...withSku, ...withoutSku];
+  // Build a map: SKU -> total units (from picklistMap)
+  const skuTotalUnits = {};
+  for (const item of Object.values(picklistMap)) {
+    if (!item || !item.sku) continue;
+    const skuKey = item.sku;
+    const qtyNum = Number(item.qty) || 0;
+    skuTotalUnits[skuKey] = (skuTotalUnits[skuKey] || 0) + qtyNum;
+  }
+  
+  const withSku = jobs.filter((j) => j.finalSku);
+  const withoutSku = jobs.filter((j) => !j.finalSku);
+  
+  withSku.sort((a, b) => {
+    const totalA = skuTotalUnits[a.finalSku] || 0;
+    const totalB = skuTotalUnits[b.finalSku] || 0;
+  
+    // 1) Bigger total units first
+    if (totalA !== totalB) {
+      return totalB - totalA; // DESC
+    }
+  
+    // 2) Fallback: alphabetic SKU
+    const cmp = a.finalSku.localeCompare(b.finalSku);
+    if (cmp !== 0) return cmp;
+  
+    // 3) Fallback: page index
+    return a.pageIndex - b.pageIndex;
+  });
+  
+  // Pages with no SKU info go at the end
+  const sortedJobs = [...withSku, ...withoutSku];
 
     // ---- Count jobs per SKU ----
     const skuCounts = {};
@@ -480,46 +502,59 @@ app.post("/crop", async (req, res) => {
       const groupKey = job.finalSku || job.rawSku || "NO_SKU";
 
       if (groupKey !== lastGroupKey) {
-        const headerPage = fullDoc.addPage([label.width, label.height]);
-        const { width: hpw, height: hph } = headerPage.getSize();
-
-        const headerText =
-          groupKey === "NO_SKU" ? "NO SKU / UNKNOWN" : groupKey;
-
-        const headerFontSize = 12;
-        const headerLineHeight = headerFontSize * 1.3;
-        const maxHeaderWidth = hpw - 40;
-
-        const headerLines = wrapTextIntoLines(
-          headerText,
-          maxHeaderWidth,
-          fullFont,
+      const headerPage = fullDoc.addPage([label.width, label.height]);
+      const { width: hpw, height: hph } = headerPage.getSize();
+    
+      let headerText;
+    
+      if (groupKey === "NO_SKU") {
+        headerText = "NO SKU / UNKNOWN";
+      } else {
+        // Try to read total units from picklistMap
+        const totalUnitsForSku =
+          (picklistMap[groupKey] && Number(picklistMap[groupKey].qty)) || 0;
+    
+        if (totalUnitsForSku > 0) {
+          headerText = `${groupKey} • Total Qty: ${totalUnitsForSku}`;
+        } else {
+          headerText = groupKey;
+        }
+      }
+    
+      const headerFontSize = 12;
+      const headerLineHeight = headerFontSize * 1.3;
+      const maxHeaderWidth = hpw - 40;
+    
+      const headerLines = wrapTextIntoLines(
+        headerText,
+        maxHeaderWidth,
+        fullFont,
+        headerFontSize
+      );
+    
+      const totalHeaderHeight = headerLines.length * headerLineHeight;
+      let headerY = (hph + totalHeaderHeight) / 2 - headerLineHeight;
+    
+      for (const line of headerLines) {
+        const lineWidth = fullFont.widthOfTextAtSize(
+          line,
           headerFontSize
         );
-
-        const totalHeaderHeight = headerLines.length * headerLineHeight;
-        let headerY = (hph + totalHeaderHeight) / 2 - headerLineHeight;
-
-        for (const line of headerLines) {
-          const lineWidth = fullFont.widthOfTextAtSize(
-            line,
-            headerFontSize
-          );
-          const headerX = (hpw - lineWidth) / 2;
-
-          headerPage.drawText(line, {
-            x: headerX,
-            y: headerY,
-            font: fullFont,
-            size: headerFontSize,
-            color: rgb(0, 0, 0),
-          });
-
-          headerY -= headerLineHeight;
-        }
-
-        lastGroupKey = groupKey;
+        const headerX = (hpw - lineWidth) / 2;
+    
+        headerPage.drawText(line, {
+          x: headerX,
+          y: headerY,
+          font: fullFont,
+          size: headerFontSize,
+          color: rgb(0, 0, 0),
+        });
+    
+        headerY -= headerLineHeight;
       }
+    
+      lastGroupKey = groupKey;
+    }
 
       await addCroppedPagesForJob(fullDoc, fullFont, job);
 
